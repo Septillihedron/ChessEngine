@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.32228.343
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ChessEngine", "ChessEngine\ChessEngine.vcxproj", "{C2117330-A5C2-4E47-910F-3238CF8E8ACD}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{821F5487-6A63-49F1-B4D9-B0AC66AA56A6}"
+	ProjectSection(SolutionItems) = preProject
+		MoveSetsGenerator.js = MoveSetsGenerator.js
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Debug|x64.ActiveCfg = Debug|x64
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Debug|x64.Build.0 = Debug|x64
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Debug|x86.ActiveCfg = Debug|Win32
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Debug|x86.Build.0 = Debug|Win32
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Release|x64.ActiveCfg = Release|x64
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Release|x64.Build.0 = Release|x64
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Release|x86.ActiveCfg = Release|Win32
+		{C2117330-A5C2-4E47-910F-3238CF8E8ACD}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DE3E84E7-2DC1-4CBA-9634-D56E5E3D36CA}
+	EndGlobalSection
+EndGlobal
