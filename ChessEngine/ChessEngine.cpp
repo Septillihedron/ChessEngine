@@ -9,10 +9,10 @@
 void PrintMove(Move move) {
     Location from = move.from;
     Location to = move.to;
-    char fromFile = fileOf(from) + 'A';
-    int fromRank = (int) rankOf(from) + 1;
-    char toFile = fileOf(to) + 'A';
-    int toRank = (int) rankOf(to) + 1;
+    u8 fromFile = fileOf(from);
+    u8 fromRank = rankOf(from);
+    u8 toFile = fileOf(to);
+    u8 toRank = rankOf(to);
 
     char promotionPiece = '-';
 
@@ -34,10 +34,10 @@ void PrintMove(Move move) {
         break;
     }
 
-    std::cout << fromFile << fromRank << toFile << toRank << promotionPiece << std::endl;
+    printf("%c%d%c%d%c\n", fromFile + 'A', (int) fromRank + 1, toFile + 'A', (int) toRank + 1, promotionPiece);
+    printf("0%d%d, 0%d%d, %c\n", fromRank, fromFile, toRank, toFile, promotionPiece);
+    
 }
-
-constexpr bool Debug = true;
 
 Move movesPlayed[10];
 Move movesUnplayed[10];
@@ -50,40 +50,43 @@ size_t perftDebug(u8 depth, u8 max_depth) {
         return movesLength;
     }
     size_t count = 0;
-    if constexpr (Debug) {
-        movesPlayed[max_depth-depth] = {};
-        movesUnplayed[max_depth-depth] = {};
-    }
+
+    movesPlayed[max_depth-depth] = {};
+    movesUnplayed[max_depth-depth] = {};
+
     BoardState prevState = boardState;
     for (int i = 0; i<movesLength; i++) {
-        if constexpr (Debug) {
-            if (moves[i].to > 63 || moves[i].from > 63) {
-                throw "Move out of bounds";
-            }
+        if (moves[i].to > 63 || moves[i].from > 63) {
+            throw "Move out of bounds";
         }
 
-        moves[i].Make();
-        if constexpr (Debug) movesPlayed[max_depth-depth] = moves[i];
+        if (depth == max_depth) {
+            PrintMove(moves[i]);
+        }
+
+        moves[i].Make<Black>();
+        movesPlayed[max_depth-depth] = moves[i];
         moves.push(movesLength);
-        count += perft<!Black>(depth - 1, max_depth);
+        count += perftDebug<!Black>(depth - 1, max_depth);
         moves.pop(movesLength);
-        moves[i].Unmake();
-        if constexpr (Debug) movesUnplayed[max_depth-depth] = moves[i];
-        if constexpr (Debug) {
-            while (!(boardState == prevState)) {
-                try {
-                    boardState = prevState;
-                    moves[i].Make();
-                    moves.push(movesLength);
-                    count += perft<!Black>(depth - 1, max_depth);
-                    moves.pop(movesLength);
-                    moves[i].Unmake();
-                }
-                catch (std::invalid_argument err) {
+        moves[i].Unmake<Black>();
+        movesUnplayed[max_depth-depth] = moves[i];
 
-                }
+        while (!(boardState == prevState)) {
+            std::cout << boardState.Difference(prevState);
+            try {
+                boardState = prevState;
+                moves[i].Make<Black>();
+                moves.push(movesLength);
+                count += perftDebug<!Black>(depth - 1, max_depth);
+                moves.pop(movesLength);
+                moves[i].Unmake<Black>();
+            }
+            catch (std::invalid_argument err) {
+
             }
         }
+
     }
     return count;
 }
@@ -105,18 +108,44 @@ size_t perft(u8 depth, u8 max_depth) {
     return count;
 }
 
+constexpr bool Debug = true;
+u8 depth = 6;
+
 int main()
 {
     std::cout << "Hello World!\n";
+    if constexpr (Debug) {
+        Move moves[] = {
+            { 006, 025, 0 },
+            { 063, 053, 0 },
+            { 025, 044, 0 },
+        };
+        bool isBlacksTurn = false;
+        for (Move move : moves) {
+            move.Make(isBlacksTurn);
+            depth--;
+            isBlacksTurn = !isBlacksTurn;
+        }
+        if (isBlacksTurn) {
+            std::cout << perftDebug<true>(depth, depth) << std::endl;
+        }
+        else {
+            std::cout << perftDebug<false>(depth, depth) << std::endl;
+        }
+    }
+    if constexpr (!Debug) {
+        long long timeTotal = 0;
+        for (int i = 0; i<100; i++) {
+            auto t1 = std::chrono::high_resolution_clock::now();
+            std::cout << perft<false>(depth, depth) << std::endl;
+            auto t2 = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i<10; i++) {
-        auto t1 = std::chrono::high_resolution_clock::now();
-        std::cout << perft<false>(6, 6) << std::endl;
-        auto t2 = std::chrono::high_resolution_clock::now();
+            auto ms_nano = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1);
+            timeTotal += ms_nano.count();
 
-        auto ms_int = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
-
-        std::cout << i << ": " << ms_int.count() << " ms" << std::endl;
+            std::cout << i << ": " << ms_nano.count() << " nanoseconds" << std::endl;
+        }
+        std::cout << timeTotal/1e6/100.0 << std::endl;
     }
     return 0;
 }

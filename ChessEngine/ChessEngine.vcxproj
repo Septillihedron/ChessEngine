@@ -157,6 +157,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AlphaBeta.h" />
+    <ClInclude Include="BitOps.h" />
     <ClInclude Include="BoardRepresentation.h" />
     <ClInclude Include="MoveSets.h" />
     <ClInclude Include="MoveGen.h" />

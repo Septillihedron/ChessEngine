@@ -39,11 +39,11 @@ BoardState CreateBoardState() {
 	return boardState;
 }
 
-CaslingState BoardState::CaslingStateHistory::currentState() {
+CaslingState CaslingStateHistory::currentState() {
 	return history[stackPointer];
 }
 
-ChangeCaslingMask BoardState::CaslingStateHistory::push(CaslingState newState) {
+ChangeCaslingMask CaslingStateHistory::push(CaslingState newState) {
 	if (newState != currentState()) {
 		stackPointer++;
 		history[stackPointer] = newState;
@@ -51,7 +51,7 @@ ChangeCaslingMask BoardState::CaslingStateHistory::push(CaslingState newState) {
 	}
 	return 0b0000;
 }
-void BoardState::CaslingStateHistory::pop() {
+void CaslingStateHistory::pop() {
 	stackPointer--;
 }
 
@@ -87,62 +87,3 @@ std::string BoardState::GetStringRepresentation() {
 }
 
 BoardState boardState = CreateBoardState();
-
-bool bitAt(BoardSet set, Location loc) {
-	return (set >> loc) & 1;
-}
-bool isOccupied(BoardSet set, Location loc) {
-	return (set >> loc) & 1;
-}
-Location firstOccupied(BoardSet set) {
-	if (set == 0) return 0;
-	unsigned long index = 0;
-	_BitScanForward64(&index, set);
-	Location location = (Location) index;
-	return location;
-}
-Location lastOccupied(BoardSet set) {
-	if (set == 0) return 0;
-	unsigned long index = 0;
-	_BitScanReverse64(&index, set);
-	Location location = (Location) index;
-	return location;
-}
-Location extractFirstOccupied(BoardSet *set) {
-	if (set == 0) return 0;
-	unsigned long index = 0;
-	_BitScanForward64(&index, *set);
-	*set = *set & ~(((BoardSet) 1) << index);
-	Location location = (Location) index;
-	return location;
-}
-u8 numberOfOccupancies(BoardSet set) {
-	return (u8) __popcnt64(set);
-}
-
-bool canWhiteCasleKingside(CaslingState state) {
-	return state & 1;
-}
-bool canWhiteCasleQueenside(CaslingState state) {
-	return (state >> 1) & 1;
-}
-bool canBlackCasleKingside(CaslingState state) {
-	return (state >> 2) & 1;
-}
-bool canBlackCasleQueenside(CaslingState state) {
-	return (state >> 3) & 1;
-}
-
-File fileOf(Location loc) {
-	return loc & 7;
-}
-Rank rankOf(Location loc) {
-	return loc >> 3;
-}
-
-bool isColorBlack(PieceType type) {
-	return type >> 3;
-}
-PieceType uncoloredType(PieceType type) {
-	return type & 7;
-}

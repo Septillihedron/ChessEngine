@@ -1,7 +1,9 @@
 #pragma once
 #include <stdint.h>
 #include <intrin.h>
+#include <stdexcept>
 #include <string>
+#include <sstream>
 
 #define BoardSet uint64_t
 #define u8 uint8_t
@@ -11,6 +13,8 @@
 #define PieceType u8
 #define File u8
 #define Rank u8
+
+#include "BitOps.h"
 
 constexpr Location NullLocation = 0b10000000;
 constexpr CaslingState AllowAllCasling = 0b00001111;
@@ -56,8 +60,7 @@ namespace piece_type {
 	constexpr PieceType BLACK_QUEEN = 015;
 	constexpr PieceType BLACK_KING = 016;
 
-	template<bool B>
-	char PieceChar(PieceType type) {
+	inline char PieceChar(PieceType type) {
 		switch (type) {
 		case NONE:
 			return '-';
@@ -91,70 +94,101 @@ namespace piece_type {
 	}
 }
 
-bool bitAt(BoardSet set, Location loc);
-bool isOccupied(BoardSet set, Location loc);
-template <bool Bit>
-void setBit(BoardSet *set, Location loc) {
-	if constexpr (Bit) {
-		*set |= 1ULL << loc;
-	}
-	else {
-		*set &= ~(1ULL << loc);
-	}
+__forceinline
+bool canWhiteCasleKingside(CaslingState state) {
+	return state & 1;
 }
-Location firstOccupied(BoardSet set);
-Location lastOccupied(BoardSet set);
-Location extractFirstOccupied(BoardSet *set);
-u8 numberOfOccupancies(BoardSet set);
+__forceinline
+bool canWhiteCasleQueenside(CaslingState state) {
+	return (state >> 1) & 1;
+}
+__forceinline
+bool canBlackCasleKingside(CaslingState state) {
+	return (state >> 2) & 1;
+}
+__forceinline
+bool canBlackCasleQueenside(CaslingState state) {
+	return (state >> 3) & 1;
+}
 
-bool canWhiteCasleKingside(CaslingState state);
-bool canWhiteCasleQueenside(CaslingState state);
-bool canBlackCasleKingside(CaslingState state);
-bool canBlackCasleQueenside(CaslingState state);
+__forceinline
+File fileOf(Location loc) {
+	return loc & 7;
+}
+__forceinline
+Rank rankOf(Location loc) {
+	return loc >> 3;
+}
 
-File fileOf(Location loc);
-Rank rankOf(Location loc);
+__forceinline
+bool isColorBlack(PieceType type) {
+	return type >> 3;
+}
+__forceinline
+PieceType uncoloredType(PieceType type) {
+	return type & 7;
+}
 
-bool isColorBlack(PieceType type);
-PieceType uncoloredType(PieceType type);
+typedef struct CaslingStateHistory {
+	CaslingState history[5];
+	u8 stackPointer;
+
+	CaslingState currentState();
+	ChangeCaslingMask push(CaslingState newState);
+	void pop();
+
+	bool operator==(const CaslingStateHistory &) const = default;
+} CaslingStateHistory;
+
+typedef struct PieceSets {
+	BoardSet pawn;
+	BoardSet knight;
+	BoardSet bishop;
+	BoardSet rook;
+	BoardSet queen;
+	BoardSet king;
+	BoardSet all;
+
+	bool operator==(const PieceSets &other) {
+		if (pawn != other.pawn) return false;
+		if (knight != other.knight) return false;
+		if (bishop != other.bishop) return false;
+		if (rook != other.rook) return false;
+		if (queen != other.queen) return false;
+		if (king != other.king) return false;
+		if (all != other.all) return false;
+		return true;
+	}
+	inline std::string Difference(const PieceSets &other) {
+		std::stringstream difference;
+		if (pawn != other.pawn) difference << "pawn, ";
+		if (knight != other.knight) difference << "knight, ";
+		if (bishop != other.bishop) difference << "bishop, ";
+		if (rook != other.rook) difference << "rook, ";
+		if (queen != other.queen) difference << "queen, ";
+		if (king != other.king) difference << "king, ";
+		if (all != other.all) difference << "all, ";
+		return difference.str();
+	}
+} PieceSets;
+typedef struct NamedPinnedSets {
+	BoardSet negativeDiagonal;
+	BoardSet vertical;
+	BoardSet positiveDiagonal;
+	BoardSet horizontal;
+
+	bool operator==(const NamedPinnedSets &) const = default;
+} NamedPinnedSets;
+typedef union PinnedSets {
+	BoardSet indexed[4];
+	struct NamedPinnedSets named;
+} PinnedSets;
 
 typedef struct BoardState {
 
 	Location enPassantTarget;
 
-	typedef struct CaslingStateHistory {
-		CaslingState history[5];
-		u8 stackPointer;
-
-		CaslingState currentState();
-		ChangeCaslingMask push(CaslingState newState);
-		void pop();
-
-		bool operator==(const CaslingStateHistory &) const = default;
-	} CaslingStateHistory;
-
 	CaslingStateHistory caslingStates;
-	
-	typedef struct PieceSets {
-		BoardSet pawn;
-		BoardSet knight;
-		BoardSet bishop;
-		BoardSet rook;
-		BoardSet queen;
-		BoardSet king;
-		BoardSet all;
-
-		bool operator==(const PieceSets &other) {
-			if (pawn != other.pawn) return false;
-			if (knight != other.knight) return false;
-			if (bishop != other.bishop) return false;
-			if (rook != other.rook) return false;
-			if (queen != other.queen) return false;
-			if (king != other.king) return false;
-			if (all != other.all) return false;
-			return true;
-		}
-	} PieceSets;
 
 	PieceSets white;
 	PieceSets black;
@@ -190,15 +224,6 @@ typedef struct BoardState {
 		}
 	}
 
-	typedef struct PinnedSets {
-		BoardSet negativeDiagonal;
-		BoardSet vertical;
-		BoardSet positiveDiagonal;
-		BoardSet horizontal;
-
-		bool operator==(const PinnedSets &) const = default;
-	} PinnedSets;
-
 	PinnedSets whitePinnedSets;
 	PinnedSets blackPinnedSets;
 
@@ -217,6 +242,18 @@ typedef struct BoardState {
 		if (white != other.white) return false;
 		if (black != other.black) return false;
 		return true;
+	}
+
+	inline std::string Difference(const BoardState &other) {
+		std::stringstream difference;
+		for (int i = 0; i<64; i++) {
+			if (squares[i] != other.squares[i]) {
+				difference << "square(" << fileOf(i) + 'A' << ", " << (int) rankOf(i) + 1 << ")\n";
+			}
+		}
+		if (white != other.white) difference << "white(" << white.Difference(other.white) << ")\n";
+		if (black != other.black) difference << "black(" << black.Difference(other.black) << ")\n";
+		return difference.str();
 	}
 
 	std::string GetStringRepresentation();
