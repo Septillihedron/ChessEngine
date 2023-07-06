@@ -53,7 +53,7 @@ extern MovesArray moves;
 
 extern int captures;
 
-void Move::MakeMoveChangeCaslingRights() {
+inline void Move::MakeMoveChangeCaslingRights() {
 	if (from == 0 || to == 0) {
 		CaslingState caslingState = boardState.caslingStates.currentState();
 		caslingState &= ~0b0010;
@@ -102,8 +102,20 @@ BoardSet pawnAttackSet(BoardSet pieceSet) {
 template <bool Black>
 __forceinline
 BoardSet pawnMoveSet(BoardSet pieceSet) {
-	BoardSet twoMoveSquares = twoMoveLocations<Black>;
-	return ((pieceSet) << forward<Black>) | ((pieceSet & twoMoveSquares) << (2*forward<Black>)); // single and double steps
+	BoardSet allPieces = boardState.white.all | boardState.black.all;
+	constexpr BoardSet twoMoveSquares = twoMoveLocations<Black>;
+	if constexpr (Black) {
+		BoardSet singleStep = (pieceSet >> 8) & ~allPieces;
+		BoardSet anotherMovePawns = singleStep & (twoMoveSquares >> 8);
+		BoardSet doubleStep = (anotherMovePawns >> 8) & ~allPieces;
+		return singleStep | doubleStep;
+	}
+	else {
+		BoardSet singleStep = (pieceSet << 8) & ~allPieces;
+		BoardSet anotherMovePawns = singleStep & (twoMoveSquares << 8);
+		BoardSet doubleStep = (anotherMovePawns << 8) & ~allPieces;
+		return singleStep | doubleStep;
+	}
 }
 __forceinline
 BoardSet knightMoveSet(BoardSet pieceSet) {
@@ -417,27 +429,27 @@ size_t generatePawnMovesAndAttacks(size_t start) {
 		pawnSet = boardState.black.pawn;
 		friendlyPieces = boardState.black.all;
 		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
+		pinnedSets = &boardState.blackPinnedSets.named;
 	}
 	else {
 		pawnSet = boardState.white.pawn;
 		friendlyPieces = boardState.white.all;
 		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
+		pinnedSets = &boardState.whitePinnedSets.named;
 	}
 	allPieces = friendlyPieces | enemyPieces;
 	pawnSet &= ~pinnedSets->horizontal;
 	size_t numberOfMoves = 0;
 	// attacks
 	BoardSet attackPawnSet = pawnSet & ~pinnedSets->vertical;
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, true>(start + numberOfMoves, pawnSet, enemyPieces); // promotions
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, true>(start + numberOfMoves, pawnSet, enemyPieces); // en passant
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, false>(start + numberOfMoves, pawnSet, enemyPieces); // normal
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // promotions
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // en passant
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // normal
 	// moves
 	BoardSet movingPawnSet = pawnSet & ~(pinnedSets->negativeDiagonal | pinnedSets->positiveDiagonal);
-	numberOfMoves += generatePawnMoves<Black, false, true>(start + numberOfMoves, pawnSet & promotionMoveLocations<Black>, allPieces); // promotions
-	numberOfMoves += generatePawnMoves<Black, true, false>(start + numberOfMoves, pawnSet & twoMoveLocations<Black>, allPieces); // double steps
-	numberOfMoves += generatePawnMoves<Black, false, false>(start + numberOfMoves, pawnSet & oneMoveLocations, allPieces); // single steps
+	numberOfMoves += generatePawnMoves<Black, false, true>(start + numberOfMoves, movingPawnSet & promotionMoveLocations<Black>, allPieces); // promotions
+	numberOfMoves += generatePawnMoves<Black, true, false>(start + numberOfMoves, movingPawnSet & twoMoveLocations<Black>, allPieces); // double steps
+	numberOfMoves += generatePawnMoves<Black, false, false>(start + numberOfMoves, movingPawnSet & oneMoveLocations, allPieces); // single steps
 
 	return numberOfMoves;
 }
@@ -536,11 +548,11 @@ size_t generateBishopLikeMoves(size_t start) {
 	size_t numberOfMoves = 0;
 	while (bishopSet != 0) {
 		Location location = extractFirstOccupied(&bishopSet);
-		if (!isOccupied(pinnedSets->negativeDiagonal, location)) {
+		if (!isOccupied(pinnedSets->positiveDiagonal, location)) {
 			numberOfMoves += AddAllMovesInDirection<-1, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 			numberOfMoves += AddAllMovesInDirection<+1, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 		}
-		if (!isOccupied(pinnedSets->positiveDiagonal, location)) {
+		if (!isOccupied(pinnedSets->negativeDiagonal, location)) {
 			numberOfMoves += AddAllMovesInDirection<+1, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 			numberOfMoves += AddAllMovesInDirection<-1, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 		}
@@ -603,10 +615,15 @@ void GeneratePinnedSets() {
 	BoardSet beforeKing = kingSet - 1;
 	BoardSet afterKing = allOccupiedSet & ~(beforeKing | kingSet);
 
-	for (int i = 0; i<4; i++) {
-		pinnedSets.indexed[i] |= ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[i] & beforeKing);
-		pinnedSets.indexed[i] |= ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[i] & afterKing);
-	}
+	pinnedSets.indexed[0] |= ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & beforeKing);
+	pinnedSets.indexed[0] |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & afterKing);
+	pinnedSets.indexed[2] |= ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & beforeKing);
+	pinnedSets.indexed[2] |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & afterKing);
+
+	pinnedSets.indexed[1] |= ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & beforeKing);
+	pinnedSets.indexed[1] |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & afterKing);
+	pinnedSets.indexed[3] |= ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & beforeKing);
+	pinnedSets.indexed[3] |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & afterKing);
 
 }
 

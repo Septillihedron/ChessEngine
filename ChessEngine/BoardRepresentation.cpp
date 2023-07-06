@@ -79,7 +79,7 @@ std::string BoardState::GetStringRepresentation() {
 	std::string s = "";
 	for (int y = 7; y>=0; y--) {
 		for (int x = 0; x<8; x++) {
-			s += piece_type::PieceChar<0>(squares[y*8 + x]);
+			s += piece_type::PieceChar(squares[y*8 + x]);
 		}
 		s += "\n";
 	}

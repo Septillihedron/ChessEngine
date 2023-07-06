@@ -3,10 +3,32 @@
 #include <iostream>
 #include <sstream>
 #include <chrono>
+#include <format>
 #include "MoveGen.h"
 
+Move movesPlayed[10];
+Move movesUnplayed[10];
+constexpr bool Debug = true;
+u8 depth = 6;
 
-void PrintMove(Move move) {
+char PromotionPiece(PieceType type) {
+    switch (type)
+    {
+    case piece_type::KNIGHT:
+        return 'N';
+    case piece_type::BISHOP:
+        return 'B';
+    case piece_type::ROOK:
+        return 'R';
+    case piece_type::QUEEN:
+        return 'Q';
+    default:
+        return '-';
+        break;
+    }
+}
+
+std::string MoveToString(Move move) {
     Location from = move.from;
     Location to = move.to;
     u8 fromFile = fileOf(from);
@@ -14,37 +36,29 @@ void PrintMove(Move move) {
     u8 toFile = fileOf(to);
     u8 toRank = rankOf(to);
 
-    char promotionPiece = '-';
+    char promotionPiece = PromotionPiece(move.metadata & 7);
 
-    switch (move.metadata)
-    {
-    case piece_type::KNIGHT:
-        promotionPiece = 'N';
-        break;
-    case piece_type::BISHOP:
-        promotionPiece = 'B';
-        break;
-    case piece_type::ROOK:
-        promotionPiece = 'R';
-        break;
-    case piece_type::QUEEN:
-        promotionPiece = 'Q';
-        break;
-    default:
-        break;
-    }
-
-    printf("%c%d%c%d%c\n", fromFile + 'A', (int) fromRank + 1, toFile + 'A', (int) toRank + 1, promotionPiece);
-    printf("0%d%d, 0%d%d, %c\n", fromRank, fromFile, toRank, toFile, promotionPiece);
-    
+    return std::format("{:c}{:d} {:c}{:d} {:c}\n", fromFile + 'A', fromRank + 1, toFile + 'A', toRank + 1, promotionPiece);
 }
 
-Move movesPlayed[10];
-Move movesUnplayed[10];
+std::string PlayedMovesToString() {
+    std::string allMoves;
+    for (int i = 0; i<depth; i++) {
+        Move move = movesPlayed[i];
+
+        allMoves += std::format("{{ {:2o}, {:2o}, {:2b} }}, \n", move.from, move.to, move.metadata);
+    }
+    allMoves += "\n";
+    for (int i = 0; i<depth; i++) {
+        Move move = movesPlayed[i];
+
+        allMoves += MoveToString(move);
+    }
+    return allMoves;
+}
 
 template <bool Black>
 size_t perftDebug(u8 depth, u8 max_depth) {
-    BoardState generatedFromState = boardState;
     size_t movesLength = GenerateMoves<Black>();
     if (depth == 0) {
         return movesLength;
@@ -61,16 +75,18 @@ size_t perftDebug(u8 depth, u8 max_depth) {
         }
 
         if (depth == max_depth) {
-            PrintMove(moves[i]);
+            std::cout << MoveToString(moves[i]);
         }
-
-        moves[i].Make<Black>();
+        else if (depth == max_depth-1) {
+            std::cout << "  " << MoveToString(moves[i]);
+        }
         movesPlayed[max_depth-depth] = moves[i];
+        moves[i].Make<Black>();
         moves.push(movesLength);
         count += perftDebug<!Black>(depth - 1, max_depth);
         moves.pop(movesLength);
-        moves[i].Unmake<Black>();
         movesUnplayed[max_depth-depth] = moves[i];
+        moves[i].Unmake<Black>();
 
         while (!(boardState == prevState)) {
             std::cout << boardState.Difference(prevState);
@@ -108,24 +124,24 @@ size_t perft(u8 depth, u8 max_depth) {
     return count;
 }
 
-constexpr bool Debug = true;
-u8 depth = 6;
-
 int main()
 {
     std::cout << "Hello World!\n";
     if constexpr (Debug) {
-        Move moves[] = {
-            { 006, 025, 0 },
-            { 063, 053, 0 },
-            { 025, 044, 0 },
-        };
         bool isBlacksTurn = false;
-        for (Move move : moves) {
-            move.Make(isBlacksTurn);
-            depth--;
-            isBlacksTurn = !isBlacksTurn;
-        }
+        //Move moves[] = {
+        //    { 013, 023,  0 },
+        //    { 062, 052,  0 },
+        //    { 004, 013,  0 },
+        //    { 073, 040,  0 },
+        //    { 013, 004,  0 },
+        //    { 040, 013,  0 },
+        //};
+        //for (Move move : moves) {
+        //    move.Make(isBlacksTurn);
+        //    depth--;
+        //    isBlacksTurn = !isBlacksTurn;
+        //}
         if (isBlacksTurn) {
             std::cout << perftDebug<true>(depth, depth) << std::endl;
         }
