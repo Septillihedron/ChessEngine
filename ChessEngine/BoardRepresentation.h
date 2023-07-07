@@ -176,17 +176,23 @@ typedef struct NamedPinnedSets {
 	BoardSet vertical;
 	BoardSet positiveDiagonal;
 	BoardSet horizontal;
+	BoardSet diagonal;
+	BoardSet lateral;
+	BoardSet all;
 
 	inline bool operator==(NamedPinnedSets &other) {
 		if (negativeDiagonal != negativeDiagonal) return false;
 		if (vertical != vertical) return false;
 		if (positiveDiagonal != positiveDiagonal) return false;
 		if (horizontal != horizontal) return false;
+		if (diagonal != diagonal) return false;
+		if (lateral != lateral) return false;
+		if (all != all) return false;
 		return true;
 	}
 } NamedPinnedSets;
 typedef union PinnedSets {
-	BoardSet indexed[4];
+	BoardSet indexed[7];
 	struct NamedPinnedSets named;
 
 	inline bool operator==(PinnedSets &other) {

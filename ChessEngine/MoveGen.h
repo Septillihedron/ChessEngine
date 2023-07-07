@@ -132,6 +132,12 @@ void Move::Make() {
 	else {
 		boardState.SetPiece<false>(to, pieceType);
 	}
+	if (uncoloredType(pieceType) == piece_type::PAWN) {
+		Rank rank = rankOf(to);
+		if (rank == 3 || rank == 4) {
+			boardState.enPassantTarget = to - forward<Black>;
+		}
+	}
 
 	MakeMoveChangeCaslingRights();
 }
@@ -157,6 +163,13 @@ void Move::Unmake() {
 	else {
 		boardState.SetPiece<false>(from, pieceType);
 	}
+	if (uncoloredType(pieceType) == piece_type::PAWN) {
+		Rank rank = rankOf(to);
+		if (rank == 3 || rank == 4) {
+			boardState.enPassantTarget = to - forward<Black>;
+		}
+	}
+
 	if (ChangedCaslingRights()) {
 		boardState.caslingStates.pop();
 	}
@@ -205,32 +218,31 @@ __forceinline
 BoardSet __RayMoveSet(const BoardSet *rays, BoardSet highBits, BoardSet lowBits, BoardSet allPieces) {
 	BoardSet highRayFirstPiece = onlyFirstBit(highBits & rays[Ray_Index] & allPieces);
 	BoardSet lowRayLastPiece = onlyLastBit(lowBits & rays[Ray_Index] & allPieces);
-	BoardSet highRay = ((highRayFirstPiece - 1) | highRayFirstPiece) & highBits & rays[Ray_Index];
-	BoardSet lowRay = ~(lowRayLastPiece - 1) & lowBits & rays[Ray_Index];
+	BoardSet highRay = ((highRayFirstPiece != 0)? ((highRayFirstPiece - 1) | highRayFirstPiece) : allOccupiedSet) & highBits & rays[Ray_Index];
+	BoardSet lowRay = ((lowRayLastPiece != 0)? ~(lowRayLastPiece - 1) : allOccupiedSet) & lowBits & rays[Ray_Index];
 
 	return highRay | lowRay;
 }
 template <bool Laterals, bool Diagonals>
 __forceinline
-BoardSet RaysMoveSet(BoardSet pieceSet) {
-	BoardSet allPieces = boardState.black.all | boardState.white.all;
+BoardSet RaysMoveSet(BoardSet pieceSet, BoardSet blockingPieces) {
 	BoardSet moves = 0;
 	while (pieceSet != 0) {
 		Location location = firstOccupied(pieceSet);
 		const BoardSet *rays = pinRays[location];
 
-		BoardSet queen = 1ULL << location;
-		pieceSet &= ~queen;
-		BoardSet lowBits = (queen - 1);
-		BoardSet highBits = ~(lowBits | queen);
+		BoardSet piece = 1ULL << location;
+		pieceSet &= ~piece;
+		BoardSet lowBits = (piece - 1);
+		BoardSet highBits = ~(lowBits | piece);
 
 		if constexpr (Laterals) {
-			moves |= __RayMoveSet<1>(rays, highBits, lowBits, allPieces);
-			moves |= __RayMoveSet<3>(rays, highBits, lowBits, allPieces);
+			moves |= __RayMoveSet<1>(rays, highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet<3>(rays, highBits, lowBits, blockingPieces);
 		}
 		if constexpr (Diagonals) {
-			moves |= __RayMoveSet<0>(rays, highBits, lowBits, allPieces);
-			moves |= __RayMoveSet<2>(rays, highBits, lowBits, allPieces);
+			moves |= __RayMoveSet<0>(rays, highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet<2>(rays, highBits, lowBits, blockingPieces);
 		}
 
 	}
@@ -246,23 +258,27 @@ void UpdateAttackAndDefendSets() {
 	PieceSets *pieceSets;
 	PieceSets *attackSets;
 	PieceSets *defendSets;
+	BoardSet enemyKing;
 	if constexpr (Black) {
 		pieceSets = &boardState.black;
 		attackSets = &boardState.blackAttacks;
 		defendSets = &boardState.blackDefends;
+		enemyKing = boardState.white.king;
 	}
 	else {
 		pieceSets = &boardState.white;
 		attackSets = &boardState.whiteAttacks;
 		defendSets = &boardState.whiteDefends;
+		enemyKing = boardState.black.king;
 	}
 	attackSets->pawn = pawnAttackSet<Black>(pieceSets->pawn);
 	defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
 	defendSets->knight = attackSets->knight = knightMoveSet(pieceSets->knight);
-	defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop);
-	defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook);
-	defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen);
-	attackSets->king = kingMoveSet(pieceSets->king);
+	BoardSet blockingPieces = (boardState.black.all | boardState.white.all) & ~enemyKing;
+	defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop, blockingPieces);
+	defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook, blockingPieces);
+	defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen, blockingPieces);
+	defendSets->king = attackSets->king = kingMoveSet(pieceSets->king);
 
 	attackSets->all = attackSets->pawn | attackSets->knight | attackSets->bishop | attackSets->rook | attackSets->queen | attackSets->king;
 	defendSets->all = defendSets->pawn | defendSets->knight | defendSets->bishop | defendSets->rook | defendSets->queen | defendSets->king;
@@ -301,14 +317,12 @@ size_t generateKnightMoves(size_t start) {
 	if constexpr (Black) {
 		knightSet = boardState.black.knight;
 		friendlyPieces = boardState.black.all;
-		BoardSet *pinnedSets = boardState.blackPinnedSets.indexed;
-		pinnedSet = (pinnedSets[0] | pinnedSets[1]) | (pinnedSets[2] | pinnedSets[3]);
+		pinnedSet = boardState.blackPinnedSets.named.all;
 	}
 	else {
 		knightSet = boardState.white.knight;
 		friendlyPieces = boardState.white.all;
-		BoardSet *pinnedSets = boardState.whitePinnedSets.indexed;
-		pinnedSet = (pinnedSets[0] | pinnedSets[1]) | (pinnedSets[2] | pinnedSets[3]);
+		pinnedSet = boardState.whitePinnedSets.named.all;
 	}
 	size_t numberOfMoves = 0;
 	knightSet &= ~pinnedSet;
@@ -324,6 +338,21 @@ size_t generateKnightMoves(size_t start) {
 template <bool In_Promotion_Locations>
 size_t generatePawnMovesWithPossiblePromotion(size_t start, Location from, Location to) {
 	if constexpr (In_Promotion_Locations) {
+		moves[start + 0] = { from, to, piece_type::KNIGHT };
+		moves[start + 1] = { from, to, piece_type::BISHOP };
+		moves[start + 2] = { from, to, piece_type::ROOK };
+		moves[start + 3] = { from, to, piece_type::QUEEN };
+		return 4;
+	}
+	else {
+		moves[start + 0] = { from, to, piece_type::NONE };
+		return 1;
+	}
+}
+__forceinline
+size_t generatePawnMovesWithPossiblePromotion(size_t start, Location from, Location to) {
+	Rank rank = rankOf(to);
+	if (rank == 7 || rank == 0) {
 		moves[start + 0] = { from, to, piece_type::KNIGHT };
 		moves[start + 1] = { from, to, piece_type::BISHOP };
 		moves[start + 2] = { from, to, piece_type::ROOK };
@@ -367,10 +396,20 @@ size_t generatePawnAttacks(size_t start, BoardSet pawnSet, BoardSet enemyPieces)
 		pinnedSets = &boardState.whitePinnedSets.named;
 	}
 	if constexpr (Direction == (File) 1) {
-		pawnSet &= ~pinnedSets->negativeDiagonal;
+		if constexpr (Black) {
+			pawnSet &= ~pinnedSets->positiveDiagonal;
+		}
+		else {
+			pawnSet &= ~pinnedSets->negativeDiagonal;
+		}
 	}
 	else {
-		pawnSet &= ~pinnedSets->positiveDiagonal;
+		if constexpr (Black) {
+			pawnSet &= ~pinnedSets->negativeDiagonal;
+		}
+		else {
+			pawnSet &= ~pinnedSets->positiveDiagonal;
+		}
 	}
 
 	size_t numberOfMoves = 0;
@@ -441,7 +480,7 @@ size_t generatePawnMovesAndAttacks(size_t start) {
 	// attacks
 	BoardSet attackPawnSet = pawnSet & ~pinnedSets->vertical;
 	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // promotions
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // en passant
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // en passant
 	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // normal
 	// moves
 	BoardSet movingPawnSet = pawnSet & ~(pinnedSets->negativeDiagonal | pinnedSets->positiveDiagonal);
@@ -507,8 +546,7 @@ size_t generateRookLikeMoves(size_t start) {
 		enemyPieces = boardState.black.all;
 		pinnedSets = &boardState.whitePinnedSets.named;
 	}
-	BoardSet diagonallyPinned = pinnedSets->negativeDiagonal | pinnedSets->positiveDiagonal;
-	rookSet &= ~diagonallyPinned;
+	rookSet &= ~pinnedSets->diagonal;
 	size_t numberOfMoves = 0;
 	while (rookSet != 0) {
 		Location location = extractFirstOccupied(&rookSet);
@@ -541,8 +579,7 @@ size_t generateBishopLikeMoves(size_t start) {
 		enemyPieces = boardState.black.all;
 		pinnedSets = &boardState.whitePinnedSets.named;
 	}
-	BoardSet laterallyPinned = pinnedSets->vertical | pinnedSets->horizontal;
-	bishopSet &= ~laterallyPinned;
+	bishopSet &= ~pinnedSets->lateral;
 	size_t numberOfMoves = 0;
 	while (bishopSet != 0) {
 		Location location = extractFirstOccupied(&bishopSet);
@@ -579,6 +616,7 @@ BoardSet ScanPinRay(BoardSet attackingPieces, BoardSet enemyBlockingPieces, Boar
 	if (numberOfBlockers == 0) {
 		boardState.checkData.checkCount++;
 		boardState.checkData.checkRay = ray;
+		boardState.checkData.checkSource = attackingPieces;
 		return 0;
 	}
 	else if (numberOfBlockers == 1) {
@@ -623,6 +661,8 @@ void GeneratePinnedSets() {
 	BoardSet beforeKing = kingSet - 1;
 	BoardSet afterKing = allOccupiedSet & ~(beforeKing | kingSet);
 
+	boardState.checkData.checkCount = 0;
+
 	pinnedSets.named.negativeDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & beforeKing);
 	pinnedSets.named.negativeDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & afterKing);
 	pinnedSets.named.positiveDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & beforeKing);
@@ -633,29 +673,160 @@ void GeneratePinnedSets() {
 	pinnedSets.named.horizontal = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & beforeKing);
 	pinnedSets.named.horizontal |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & afterKing);
 
+	pinnedSets.named.diagonal = pinnedSets.named.negativeDiagonal | pinnedSets.named.positiveDiagonal;
+	pinnedSets.named.lateral = pinnedSets.named.vertical | pinnedSets.named.horizontal;
+
+	pinnedSets.named.all = pinnedSets.named.diagonal | pinnedSets.named.lateral;
+}
+template <bool Black>
+void CheckUncheckedChecks() {
+	BoardSet king;
+	BoardSet knights;
+	BoardSet pawns;
+	if constexpr (Black) {
+		knights = boardState.white.knight;
+		pawns = boardState.white.pawn;
+		king = boardState.black.king;
+	}
+	else {
+		knights = boardState.black.knight;
+		pawns = boardState.black.pawn;
+		king = boardState.white.king;
+	}
+	/* knight checks */ {
+		Location kingLocation = firstOccupied(king);
+		BoardSet checkingKnights = knightMoves[kingLocation] & knights;
+		if (checkingKnights != 0) {
+			boardState.checkData.checkCount++;
+			boardState.checkData.checkRay = checkingKnights;
+			boardState.checkData.checkSource = checkingKnights;
+		}
+	}
+	/* pawn checks */ {
+		BoardSet checkingPawns;
+		if constexpr (Black) {
+			checkingPawns = ((king >> 7) | (king >> 9)) & pawns;
+		}
+		else {
+			checkingPawns = ((king << 7) | (king << 9)) & pawns;
+		}
+		if (checkingPawns != 0) {
+			boardState.checkData.checkCount++;
+			boardState.checkData.checkRay = checkingPawns;
+			boardState.checkData.checkSource = checkingPawns;
+		}
+	}
+}
+
+inline BoardSet RayBlocks(BoardSet blockingBishopLikePieces, BoardSet blockingRookLikePieces, Location blockingLocation, BoardSet blockingLocationSet) {
+	BoardSet allPieces = boardState.black.all | boardState.white.all;
+
+	const BoardSet *rays = pinRays[blockingLocation];
+
+	BoardSet lowBits = blockingLocationSet - 1;
+	BoardSet highBits = allOccupiedSet & ~(lowBits | blockingLocationSet);
+
+	BoardSet blockers = 0;
+
+	boardState.checkData.checkSource = 0;
+	ScanPinRay<false>(blockingBishopLikePieces, allPieces, 0, rays[0] & lowBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<true>(blockingBishopLikePieces, allPieces, 0, rays[0] & highBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<false>(blockingBishopLikePieces, allPieces, 0, rays[2] & lowBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<true>(blockingBishopLikePieces, allPieces, 0, rays[2] & highBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<false>(blockingRookLikePieces, allPieces, 0, rays[1] & lowBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<true>(blockingRookLikePieces, allPieces, 0, rays[1] & highBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<false>(blockingRookLikePieces, allPieces, 0, rays[3] & lowBits);
+	blockers |= boardState.checkData.checkSource;
+	ScanPinRay<true>(blockingRookLikePieces, allPieces, 0, rays[3] & highBits);
+	blockers |= boardState.checkData.checkSource;
+	return blockers;
 }
 
 // also capturing the checking piece
 template <bool Black>
 size_t GenerateBlockingMoves(size_t start) {
 	CheckData &checkData = boardState.checkData;
-	PieceSets &defendSets;
-	BoardSet pawnAttackSet;
-	PieceSets &pieceSets;
+	PieceSets pieceSets;
+	BoardSet pinnedSet;
 	if constexpr (Black) {
-		defendSets = boardState.blackDefends;
-		pawnAttackSet = boardState.blackAttacks;
 		pieceSets = boardState.black;
+		pinnedSet = boardState.blackPinnedSets.named.all;
 	}
 	else {
-		defendSets = boardState.whiteDefends;
-		pawnAttackSet = boardState.whiteAttacks;
 		pieceSets = boardState.white;
+		pinnedSet = boardState.whitePinnedSets.named.all;
 	}
-	BoardSet blockLocations = checkData.checkRay & defendSets.all;
-	BoardSet pawnCaptureLocations = checkData.checkSource & pawnAttackSet;
-	if ((blockLocations | pawnCaptureLocations) == 0) return 0;
+	BoardSet blockLocations = checkData.checkRay;
+	BoardSet checkSource = checkData.checkSource;
+	if ((blockLocations | checkSource) == 0) return 0;
 
+	pieceSets.pawn &= ~pinnedSet;
+	pieceSets.knight &= ~pinnedSet;
+	pieceSets.bishop &= ~pinnedSet;
+	pieceSets.rook &= ~pinnedSet;
+	pieceSets.queen &= ~pinnedSet;
+
+	size_t numberOfMoves = 0;
+
+	/* pawn captures */ {
+		Location checkLocation = firstOccupied(checkSource);
+		BoardSet pawnCaptureLocations;
+		if constexpr (Black) {
+			pawnCaptureLocations = (((checkSource & ~AFile) << 7) | ((checkSource & ~HFile) << 9)) & pieceSets.pawn;
+		}
+		else {
+			pawnCaptureLocations = (((checkSource & ~HFile) >> 7) | ((checkSource & ~AFile) >> 9)) & pieceSets.pawn;
+		}
+		while (pawnCaptureLocations != 0) {
+			numberOfMoves += generatePawnMovesWithPossiblePromotion(start + numberOfMoves, extractFirstOccupied(&pawnCaptureLocations), checkLocation);
+		}
+	}
+
+	BoardSet currentBlockSet;
+	Location currentBlockLocation;
+	while (blockLocations != 0) {
+		currentBlockLocation = firstOccupied(blockLocations);
+		currentBlockSet = 1ULL << currentBlockLocation;
+		blockLocations &= ~currentBlockSet;
+
+		/* pawn blocks */ {
+			BoardSet onlyBlockLocations = currentBlockSet & ~checkSource;
+			BoardSet pawnBlockLocations;
+			if constexpr (Black) {
+				pawnBlockLocations = ((onlyBlockLocations << 8) | ((onlyBlockLocations << 16) & twoMoveLocations<Black>)) & pieceSets.pawn;
+			}
+			else {
+				pawnBlockLocations = ((onlyBlockLocations >> 8) | ((onlyBlockLocations >> 16) & twoMoveLocations<Black>)) & pieceSets.pawn;
+			}
+			while (pawnBlockLocations != 0) {
+				numberOfMoves += generatePawnMovesWithPossiblePromotion(start + numberOfMoves, extractFirstOccupied(&pawnBlockLocations), currentBlockLocation);
+			}
+		}
+		/* knight blocks */ {
+			BoardSet knightBlocks = knightMoves[currentBlockLocation] & pieceSets.knight;
+			while (knightBlocks != 0) {
+				Location knightLocation = extractFirstOccupied(&knightBlocks);
+				moves[start + numberOfMoves] = { knightLocation, currentBlockLocation, 0 };
+				numberOfMoves++;
+			}
+		}
+		/* bishop like and rook like blocks */ {
+			BoardSet blockingPieces = RayBlocks(pieceSets.bishop | pieceSets.queen, pieceSets.rook | pieceSets.queen, currentBlockLocation, currentBlockSet);
+			blockingPieces &= ~checkSource;
+			while (blockingPieces != 0) {
+				Location location = extractFirstOccupied(&blockingPieces);
+				moves[start + numberOfMoves] = { location, currentBlockLocation, 0 };
+				numberOfMoves++;
+			}
+		}
+	}
+	return numberOfMoves;
 }
 
 template <bool Black>
@@ -664,21 +835,21 @@ size_t GenerateMoves() {
 		moves.resizeAdd();
 	}
 	UpdateAttackAndDefendSets<Black>();
+	UpdateAttackAndDefendSets<!Black>();
 	GeneratePinnedSets<Black>();
+	CheckUncheckedChecks<Black>();
 
 	size_t movesSize = 0;
 	movesSize += generateKingMoves<Black>(movesSize);
 	if (boardState.checkData.checkCount == 0) {
-		movesSize += generateKnightMoves<Black>(movesSize);
 		movesSize += generatePawnMovesAndAttacks<Black>(movesSize);
-		movesSize += generateRookLikeMoves<Black>(movesSize);
+		movesSize += generateKnightMoves<Black>(movesSize);
 		movesSize += generateBishopLikeMoves<Black>(movesSize);
+		movesSize += generateRookLikeMoves<Black>(movesSize);
 	}
 	else if (boardState.checkData.checkCount == 1) {
-		movesSize += generateBlockingMoves<Black>(movesSize);
+		movesSize += GenerateBlockingMoves<Black>(movesSize);
 	}
-	else {
-		return movesSize;
-	}
+	return movesSize;
 }
 
