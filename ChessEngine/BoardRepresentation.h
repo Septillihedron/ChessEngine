@@ -149,7 +149,7 @@ typedef struct PieceSets {
 	BoardSet king;
 	BoardSet all;
 
-	bool operator==(const PieceSets &other) {
+	inline bool operator==(PieceSets &other) {
 		if (pawn != other.pawn) return false;
 		if (knight != other.knight) return false;
 		if (bishop != other.bishop) return false;
@@ -177,12 +177,33 @@ typedef struct NamedPinnedSets {
 	BoardSet positiveDiagonal;
 	BoardSet horizontal;
 
-	bool operator==(const NamedPinnedSets &) const = default;
+	inline bool operator==(NamedPinnedSets &other) {
+		if (negativeDiagonal != negativeDiagonal) return false;
+		if (vertical != vertical) return false;
+		if (positiveDiagonal != positiveDiagonal) return false;
+		if (horizontal != horizontal) return false;
+		return true;
+	}
 } NamedPinnedSets;
 typedef union PinnedSets {
 	BoardSet indexed[4];
 	struct NamedPinnedSets named;
+
+	inline bool operator==(PinnedSets &other) {
+		return named == other.named;
+	}
 } PinnedSets;
+typedef struct CheckData {
+	u8 checkCount;
+	BoardSet checkRay;
+	BoardSet checkSource;
+
+	inline bool operator==(CheckData &other) {
+		if (checkCount != checkCount) return false;
+		if (checkRay != checkRay) return false;
+		return true;
+	}
+} CheckData;
 
 typedef struct BoardState {
 
@@ -237,14 +258,25 @@ typedef struct BoardState {
 		}
 	}
 
-	bool operator==(const BoardState &other) {
+	CheckData checkData;
+
+	inline bool operator==(BoardState &other) {
+		if (enPassantTarget != other.enPassantTarget) return false;
+		if (caslingStates != caslingStates) return false;
+		if (white != white) return false;
+		if (black != black) return false;
+		if (whiteAttacks != whiteAttacks) return false;
+		if (blackAttacks != blackAttacks) return false;
+		if (whiteDefends != whiteDefends) return false;
+		if (blackDefends != blackDefends) return false;
 		for (int i = 0; i<64; i++) if (squares[i] != other.squares[i]) return false;
-		if (white != other.white) return false;
-		if (black != other.black) return false;
+		if (whitePinnedSets != whitePinnedSets) return false;
+		if (blackPinnedSets != blackPinnedSets) return false;
+		if (checkData != checkData) return false;
 		return true;
 	}
 
-	inline std::string Difference(const BoardState &other) {
+	inline std::string Difference(BoardState &other) {
 		std::stringstream difference;
 		for (int i = 0; i<64; i++) {
 			if (squares[i] != other.squares[i]) {

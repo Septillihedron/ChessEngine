@@ -1,15 +1,18 @@
 // ChessEngine.cpp : This file contains the 'main' function. Program execution begins and ends there.
 
+#define DEBUG
+
 #include <iostream>
 #include <sstream>
 #include <chrono>
-#include <format>
 #include "MoveGen.h"
 
+u8 depth = 5;
+
+#ifdef DEBUG
+#include <format>
 Move movesPlayed[10];
 Move movesUnplayed[10];
-constexpr bool Debug = true;
-u8 depth = 6;
 
 char PromotionPiece(PieceType type) {
     switch (type)
@@ -38,23 +41,31 @@ std::string MoveToString(Move move) {
 
     char promotionPiece = PromotionPiece(move.metadata & 7);
 
-    return std::format("{:c}{:d} {:c}{:d} {:c}\n", fromFile + 'A', fromRank + 1, toFile + 'A', toRank + 1, promotionPiece);
+    return std::format("{:c}{:d} {:c}{:d} {:c}", fromFile + 'A', fromRank + 1, toFile + 'A', toRank + 1, promotionPiece);
+}
+std::string MoveInitiatorString(Move move) {
+    return std::format("{{ {:#03o}, {:#03o}, {:#03b} }}, ", move.from, move.to, move.metadata);
 }
 
 std::string PlayedMovesToString() {
     std::string allMoves;
     for (int i = 0; i<depth; i++) {
         Move move = movesPlayed[i];
-
-        allMoves += std::format("{{ {:2o}, {:2o}, {:2b} }}, \n", move.from, move.to, move.metadata);
+        allMoves += MoveInitiatorString(move);
     }
     allMoves += "\n";
     for (int i = 0; i<depth; i++) {
         Move move = movesPlayed[i];
-
         allMoves += MoveToString(move);
     }
     return allMoves;
+}
+
+bool MovesArrayEq(Move *a, Move *b, int n) {
+    for (int i = 0; i<n; i++) {
+        if (a[i] != b[i]) return false;
+    }
+    return true;
 }
 
 template <bool Black>
@@ -73,12 +84,8 @@ size_t perftDebug(u8 depth, u8 max_depth) {
         if (moves[i].to > 63 || moves[i].from > 63) {
             throw "Move out of bounds";
         }
-
         if (depth == max_depth) {
-            std::cout << MoveToString(moves[i]);
-        }
-        else if (depth == max_depth-1) {
-            std::cout << "  " << MoveToString(moves[i]);
+            std::cout << MoveToString(moves[i]) << std::endl;
         }
         movesPlayed[max_depth-depth] = moves[i];
         moves[i].Make<Black>();
@@ -108,6 +115,33 @@ size_t perftDebug(u8 depth, u8 max_depth) {
 }
 
 template <bool Black>
+bool exploreMove() {
+    size_t movesLength = GenerateMoves<Black>();
+    std::cout << movesLength << std::endl;
+    for (int i = 0; i<movesLength; i++) {
+        std::cout << std::format("{:3d}", i) << ": " << MoveToString(moves[i]) << " " << MoveInitiatorString(moves[i]) << std::endl;
+    }
+    int index = 0;
+    std::cout << "Explore index: ";
+    std::cin >> index;
+
+    if (index == -1) return true;
+    if (index == -2) return false;
+
+    std::cout << "Chosen index " << index << ": " << MoveToString(moves[index]) << " " << MoveInitiatorString(moves[index]) << std::endl;
+    moves[index].Make<Black>();
+    moves.push(movesLength);
+    bool reset = exploreMove<!Black>();
+    moves.pop(movesLength);
+    moves[index].Unmake<Black>();
+
+    std::cout << MoveInitiatorString(moves[index]) << std::endl;
+    return reset;
+}
+
+#endif // DEBUG
+
+template <bool Black>
 size_t perft(u8 depth, u8 max_depth) {
     size_t movesLength = GenerateMoves<Black>();
     if (depth == 0) {
@@ -115,11 +149,12 @@ size_t perft(u8 depth, u8 max_depth) {
     }
     size_t count = 0;
     for (int i = 0; i<movesLength; i++) {
-        moves[i].Make();
+        if (uncoloredType(boardState.squares[moves[i].to]) == piece_type::KING) continue;
+        moves[i].Make<Black>();
         moves.push(movesLength);
         count += perft<!Black>(depth - 1, max_depth);
         moves.pop(movesLength);
-        moves[i].Unmake();
+        moves[i].Unmake<Black>();
     }
     return count;
 }
@@ -127,42 +162,39 @@ size_t perft(u8 depth, u8 max_depth) {
 int main()
 {
     std::cout << "Hello World!\n";
-    if constexpr (Debug) {
-        bool isBlacksTurn = false;
-        //Move moves[] = {
-        //    { 013, 023,  0 },
-        //    { 062, 052,  0 },
-        //    { 004, 013,  0 },
-        //    { 073, 040,  0 },
-        //    { 013, 004,  0 },
-        //    { 040, 013,  0 },
-        //};
-        //for (Move move : moves) {
-        //    move.Make(isBlacksTurn);
-        //    depth--;
-        //    isBlacksTurn = !isBlacksTurn;
-        //}
-        if (isBlacksTurn) {
-            std::cout << perftDebug<true>(depth, depth) << std::endl;
-        }
-        else {
-            std::cout << perftDebug<false>(depth, depth) << std::endl;
-        }
+#ifdef DEBUG
+    //while (exploreMove<false>()) {}
+    //if (true) return 0;
+    bool isBlacksTurn = false;
+    //Move moves[] = {
+    //    { 012, 022,  0 }
+    //};
+    //for (Move move : moves) {
+    //    move.Make(isBlacksTurn);
+    //    depth--;
+    //    isBlacksTurn = !isBlacksTurn;
+    //}
+    if (isBlacksTurn) {
+        std::cout << perftDebug<true>(depth, depth) << std::endl;
     }
-    if constexpr (!Debug) {
-        long long timeTotal = 0;
-        for (int i = 0; i<100; i++) {
-            auto t1 = std::chrono::high_resolution_clock::now();
-            std::cout << perft<false>(depth, depth) << std::endl;
-            auto t2 = std::chrono::high_resolution_clock::now();
-
-            auto ms_nano = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1);
-            timeTotal += ms_nano.count();
-
-            std::cout << i << ": " << ms_nano.count() << " nanoseconds" << std::endl;
-        }
-        std::cout << timeTotal/1e6/100.0 << std::endl;
+    else {
+        std::cout << perftDebug<false>(depth, depth) << std::endl;
     }
+#else
+    long long timeTotal = 0;
+    for (int i = 0; i<10; i++) {
+        auto t1 = std::chrono::high_resolution_clock::now();
+        std::cout << perft<false>(depth, depth) << " nodes" << std::endl;
+        auto t2 = std::chrono::high_resolution_clock::now();
+
+        auto ms_nano = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1);
+        timeTotal += ms_nano.count();
+
+        std::cout << i << ": " << ms_nano.count()/1e6 << " ms" << std::endl;
+    }
+    std::cout << timeTotal/1e6/10 << " ms" << std::endl;
+#endif // DEBUG
+
     return 0;
 }
 

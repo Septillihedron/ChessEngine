@@ -4,7 +4,28 @@
 #include "BoardRepresentation.h"
 
 BoardState CreateBoardState() {
-	BoardState boardState = { NullLocation, { AllowAllCasling }, 0 };
+
+	//BoardState boardState = {
+	//	Location enPassantTarget;
+
+	//	CaslingStateHistory caslingStates;
+
+	//	PieceSets white;
+	//	PieceSets black;
+	//	PieceSets whiteAttacks;
+	//	PieceSets blackAttacks;
+	//	PieceSets whiteDefends;
+	//	PieceSets blackDefends;
+
+	//	PieceType squares[64];
+
+	//	PinnedSets whitePinnedSets;
+	//	PinnedSets blackPinnedSets;
+
+	//	CheckData checkData;
+	//}
+
+	BoardState boardState = { NullLocation, { { AllowAllCasling }, 0 }, 0 };
 	boardState.white =
 	{
 		0b11111111ULL << 8,

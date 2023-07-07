@@ -16,13 +16,17 @@ typedef struct Move {
 	Location to;
 	MoveMetadata metadata;
 
-	PieceType PromotionPiece();
-	bool ChangedCaslingRights();
-	PieceType CapturedPiece();
+	__forceinline PieceType PromotionPiece() {
+		return metadata & 7;
+	}
+	__forceinline bool ChangedCaslingRights() {
+		return (metadata >> 3) & 1;
+	}
+	__forceinline PieceType CapturedPiece() {
+		return (metadata >> 4);
+	}
 
 	void MakeMoveChangeCaslingRights();
-	template <bool Black>
-	void UpdateAttackAndDefendSets(PieceType pieceColoredType);
 	template <bool Black>
 	void Make();
 	inline void Make(bool Black) {
@@ -31,6 +35,13 @@ typedef struct Move {
 	}
 	template <bool Black>
 	void Unmake();
+
+	inline bool operator==(Move &other) {
+		if (from != other.from) return false;
+		if (to != other.to) return false;
+		if ((metadata & 7) != (other.metadata & 7)) return false;
+		return true;
+	}
 } Move;
 
 typedef struct MovesArray {
@@ -40,12 +51,24 @@ typedef struct MovesArray {
 
 	MovesArray();
 
-	void push(size_t size);
-	void pop(size_t size);
-	void resizeAdd();
-	void resizeSub();
+	__forceinline void push(size_t size) {
+		start += size;
+	}
+	__forceinline void pop(size_t size) {
+		start -= size;
+	}
+	__forceinline void resizeAdd() {
+		capacity += 350;
+		moves = (Move *) realloc(moves, capacity * sizeof Move);
+	}
+	__forceinline void resizeSub() {
+		capacity -= 350;
+		moves = (Move *) realloc(moves, capacity * sizeof Move);
+	}
 
-	Move &operator[](size_t index);
+	__forceinline Move &operator[](size_t index) {
+		return this->moves[this->start + index];
+	}
 
 } MovesArray;
 
@@ -89,6 +112,57 @@ inline void Move::MakeMoveChangeCaslingRights() {
 }
 
 template <bool Black>
+void Move::Make() {
+	PieceType pieceType = boardState.squares[from];
+
+	boardState.SetPiece<true>(from, piece_type::NONE);
+
+	PieceType capturedPiece = boardState.squares[to];
+	if (capturedPiece != piece_type::NONE) {
+		captures++;
+		metadata |= uncoloredType(capturedPiece) << 4;
+		boardState.SetPiece<true>(to, piece_type::NONE);
+	}
+
+	PieceType promotionPiece = PromotionPiece();
+	if (promotionPiece != piece_type::NONE) {
+		promotionPiece |= pieceType & 0b1000;
+		boardState.SetPiece<false>(to, promotionPiece);
+	}
+	else {
+		boardState.SetPiece<false>(to, pieceType);
+	}
+
+	MakeMoveChangeCaslingRights();
+}
+template <bool Black>
+void Move::Unmake() {
+
+	PieceType pieceType = boardState.squares[to];
+	PieceType pieceColor = pieceType & 0b1000;
+
+	PieceType capturedPiece = CapturedPiece();
+	if (capturedPiece == piece_type::NONE) {
+		boardState.SetPiece<true>(to, piece_type::NONE);
+	}
+	else {
+		boardState.SetPiece<true>(to, piece_type::NONE);
+		boardState.SetPiece<false>(to, capturedPiece | (~pieceColor & 0b1000));
+	}
+
+	PieceType promotionPiece = PromotionPiece();
+	if (promotionPiece != piece_type::NONE) {
+		boardState.SetPiece<false>(from, piece_type::PAWN | pieceColor);
+	}
+	else {
+		boardState.SetPiece<false>(from, pieceType);
+	}
+	if (ChangedCaslingRights()) {
+		boardState.caslingStates.pop();
+	}
+}
+
+template <bool Black>
 __forceinline
 BoardSet pawnAttackSet(BoardSet pieceSet) {
 	if constexpr (Black) {
@@ -97,7 +171,7 @@ BoardSet pawnAttackSet(BoardSet pieceSet) {
 	else {
 		return ((pieceSet & ~AFile) << (8-1)) | ((pieceSet & ~HFile) << (8+1)); // left and right attacks
 	}
-	
+
 }
 template <bool Black>
 __forceinline
@@ -168,9 +242,7 @@ BoardSet kingMoveSet(BoardSet pieceSet) {
 }
 
 template <bool Black>
-void Move::UpdateAttackAndDefendSets(PieceType pieceColoredType) {
-	PieceType pieceType = uncoloredType(pieceColoredType);
-
+void UpdateAttackAndDefendSets() {
 	PieceSets *pieceSets;
 	PieceSets *attackSets;
 	PieceSets *defendSets;
@@ -184,90 +256,16 @@ void Move::UpdateAttackAndDefendSets(PieceType pieceColoredType) {
 		attackSets = &boardState.whiteAttacks;
 		defendSets = &boardState.whiteDefends;
 	}
-	switch (pieceType) {
-	case piece_type::PAWN:
-		attackSets->pawn = pawnAttackSet<Black>(pieceSets->pawn);
-		defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
-		break;
-	case piece_type::KNIGHT:
-		defendSets->knight = attackSets->knight = knightMoveSet(pieceSets->knight);
-		break;
-	case piece_type::BISHOP:
-		defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop);
-		break;
-	case piece_type::ROOK:
-		defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook);
-		break;
-	case piece_type::QUEEN:
-		defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen);
-		break;
-	case piece_type::KING:
-		attackSets->king |= kingMoveSet(pieceSets->king);
-		break;
-	default:
-		throw std::invalid_argument("Invalid piece type");
-	}
-	attackSets->all = attackSets->pawn | attackSets->knight |attackSets->bishop | attackSets->rook | attackSets->queen | attackSets->king;
-	defendSets->all = defendSets->pawn | defendSets->knight |defendSets->bishop | defendSets->rook | defendSets->queen | defendSets->king;
-}
+	attackSets->pawn = pawnAttackSet<Black>(pieceSets->pawn);
+	defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
+	defendSets->knight = attackSets->knight = knightMoveSet(pieceSets->knight);
+	defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop);
+	defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook);
+	defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen);
+	attackSets->king = kingMoveSet(pieceSets->king);
 
-template <bool Black>
-void Move::Make() {
-	PieceType pieceType = boardState.squares[from];
-
-	boardState.SetPiece<true>(from, piece_type::NONE);
-
-	PieceType capturedPiece = boardState.squares[to];
-	if (capturedPiece != piece_type::NONE) {
-		captures++;
-		metadata |= uncoloredType(capturedPiece) << 4;
-		boardState.SetPiece<true>(to, piece_type::NONE);
-		UpdateAttackAndDefendSets<!Black>(capturedPiece);
-	}
-
-	PieceType promotionPiece = PromotionPiece();
-	if (promotionPiece != piece_type::NONE) {
-		promotionPiece |= pieceType & 0b1000;
-		boardState.SetPiece<false>(to, promotionPiece);
-		UpdateAttackAndDefendSets<Black>(promotionPiece);
-	}
-	else {
-		boardState.SetPiece<false>(to, pieceType);
-	}
-
-	UpdateAttackAndDefendSets<Black>(pieceType);
-
-	MakeMoveChangeCaslingRights();
-}
-template <bool Black>
-void Move::Unmake() {
-
-	PieceType pieceType = boardState.squares[to];
-	PieceType pieceColor = pieceType & 0b1000;
-
-	PieceType capturedPiece = CapturedPiece();
-	if (capturedPiece == piece_type::NONE) {
-		boardState.SetPiece<true>(to, piece_type::NONE);
-	}
-	else {
-		boardState.SetPiece<true>(to, piece_type::NONE);
-		boardState.SetPiece<false>(to, capturedPiece | (~pieceColor & 0b1000));
-		UpdateAttackAndDefendSets<!Black>(capturedPiece);
-	}
-
-	PieceType promotionPiece = PromotionPiece();
-	if (promotionPiece != piece_type::NONE) {
-		boardState.SetPiece<false>(from, piece_type::PAWN | pieceColor);
-		UpdateAttackAndDefendSets<!Black>(promotionPiece);
-		UpdateAttackAndDefendSets<!Black>(piece_type::PAWN);
-	}
-	else {
-		boardState.SetPiece<false>(from, pieceType);
-		UpdateAttackAndDefendSets<!Black>(pieceType);
-	}
-	if (ChangedCaslingRights()) {
-		boardState.caslingStates.pop();
-	}
+	attackSets->all = attackSets->pawn | attackSets->knight | attackSets->bishop | attackSets->rook | attackSets->queen | attackSets->king;
+	defendSets->all = defendSets->pawn | defendSets->knight | defendSets->bishop | defendSets->rook | defendSets->queen | defendSets->king;
 }
 
 inline void AddAllMoves(size_t start, BoardSet moveSet, Move move) {
@@ -374,11 +372,11 @@ size_t generatePawnAttacks(size_t start, BoardSet pawnSet, BoardSet enemyPieces)
 	else {
 		pawnSet &= ~pinnedSets->positiveDiagonal;
 	}
-	
+
 	size_t numberOfMoves = 0;
 	while (pawnSet != 0) {
 		Location location = extractFirstOccupied(&pawnSet);
-		Location target = location + forward<Black> + Direction;
+		Location target = location + forward<Black> +Direction;
 		if constexpr (In_En_Passant_Locations) {
 			if (boardState.enPassantTarget != NullLocation) {
 				if (boardState.enPassantTarget == fileOf(location) + Direction) {
@@ -513,12 +511,12 @@ size_t generateRookLikeMoves(size_t start) {
 	rookSet &= ~diagonallyPinned;
 	size_t numberOfMoves = 0;
 	while (rookSet != 0) {
-		Location location = extractFirstOccupied(&rookSet);//flipped
-		if (!isOccupied(pinnedSets->horizontal, location)) {
+		Location location = extractFirstOccupied(&rookSet);
+		if (!isOccupied(pinnedSets->vertical, location)) {
 			numberOfMoves += AddAllMovesInDirection<+1, +0>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 			numberOfMoves += AddAllMovesInDirection<-1, +0>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 		}
-		if (!isOccupied(pinnedSets->vertical, location)) {
+		if (!isOccupied(pinnedSets->horizontal, location)) {
 			numberOfMoves += AddAllMovesInDirection<+0, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 			numberOfMoves += AddAllMovesInDirection<+0, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
 		}
@@ -575,10 +573,20 @@ BoardSet ScanPinRay(BoardSet attackingPieces, BoardSet enemyBlockingPieces, Boar
 		ray &= ~((attackingPieces - 1) | attackingPieces);
 	}
 
-	if ((enemyBlockingPieces & ray) != 0) return 0;
+	if ((enemyBlockingPieces & ray) != 0) return 0; // if an enemy piece is blocking the check
 	friendlyBlockingPieces &= ray;
-	if (numberOfOccupancies(friendlyBlockingPieces) != 1) return 0;
-	return friendlyBlockingPieces;
+	u8 numberOfBlockers = numberOfOccupancies(friendlyBlockingPieces);
+	if (numberOfBlockers == 0) {
+		boardState.checkData.checkCount++;
+		boardState.checkData.checkRay = ray;
+		return 0;
+	}
+	else if (numberOfBlockers == 1) {
+		return friendlyBlockingPieces;
+	}
+	else {
+		return 0;
+	}
 }
 
 template <bool Black>
@@ -591,7 +599,7 @@ void GeneratePinnedSets() {
 	BoardSet enemyNonBishopLike;
 	BoardSet friendlyPieces;
 	BoardSet kingSet;
-	
+
 	if constexpr (Black) {
 		enemyRookLike = boardState.white.rook | boardState.white.queen;
 		enemyBishopLike = boardState.white.bishop | boardState.white.queen;
@@ -615,15 +623,38 @@ void GeneratePinnedSets() {
 	BoardSet beforeKing = kingSet - 1;
 	BoardSet afterKing = allOccupiedSet & ~(beforeKing | kingSet);
 
-	pinnedSets.indexed[0] |= ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & beforeKing);
-	pinnedSets.indexed[0] |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & afterKing);
-	pinnedSets.indexed[2] |= ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & beforeKing);
-	pinnedSets.indexed[2] |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & afterKing);
+	pinnedSets.named.negativeDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & beforeKing);
+	pinnedSets.named.negativeDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & afterKing);
+	pinnedSets.named.positiveDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & beforeKing);
+	pinnedSets.named.positiveDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & afterKing);
 
-	pinnedSets.indexed[1] |= ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & beforeKing);
-	pinnedSets.indexed[1] |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & afterKing);
-	pinnedSets.indexed[3] |= ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & beforeKing);
-	pinnedSets.indexed[3] |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & afterKing);
+	pinnedSets.named.vertical = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & beforeKing);
+	pinnedSets.named.vertical |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & afterKing);
+	pinnedSets.named.horizontal = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & beforeKing);
+	pinnedSets.named.horizontal |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & afterKing);
+
+}
+
+// also capturing the checking piece
+template <bool Black>
+size_t GenerateBlockingMoves(size_t start) {
+	CheckData &checkData = boardState.checkData;
+	PieceSets &defendSets;
+	BoardSet pawnAttackSet;
+	PieceSets &pieceSets;
+	if constexpr (Black) {
+		defendSets = boardState.blackDefends;
+		pawnAttackSet = boardState.blackAttacks;
+		pieceSets = boardState.black;
+	}
+	else {
+		defendSets = boardState.whiteDefends;
+		pawnAttackSet = boardState.whiteAttacks;
+		pieceSets = boardState.white;
+	}
+	BoardSet blockLocations = checkData.checkRay & defendSets.all;
+	BoardSet pawnCaptureLocations = checkData.checkSource & pawnAttackSet;
+	if ((blockLocations | pawnCaptureLocations) == 0) return 0;
 
 }
 
@@ -632,13 +663,22 @@ size_t GenerateMoves() {
 	if (moves.start + 350 > moves.capacity) {
 		moves.resizeAdd();
 	}
+	UpdateAttackAndDefendSets<Black>();
 	GeneratePinnedSets<Black>();
+
 	size_t movesSize = 0;
 	movesSize += generateKingMoves<Black>(movesSize);
-	movesSize += generateKnightMoves<Black>(movesSize);
-	movesSize += generatePawnMovesAndAttacks<Black>(movesSize);
-	movesSize += generateRookLikeMoves<Black>(movesSize);
-	movesSize += generateBishopLikeMoves<Black>(movesSize);
-	return movesSize;
+	if (boardState.checkData.checkCount == 0) {
+		movesSize += generateKnightMoves<Black>(movesSize);
+		movesSize += generatePawnMovesAndAttacks<Black>(movesSize);
+		movesSize += generateRookLikeMoves<Black>(movesSize);
+		movesSize += generateBishopLikeMoves<Black>(movesSize);
+	}
+	else if (boardState.checkData.checkCount == 1) {
+		movesSize += generateBlockingMoves<Black>(movesSize);
+	}
+	else {
+		return movesSize;
+	}
 }
 
