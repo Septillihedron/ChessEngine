@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <stdint.h>
+#include <format>
 #include "BoardRepresentation.h"
 #include "MoveSets.h"
 
@@ -45,6 +46,34 @@ typedef struct Move {
 	template <bool Black>
 	void Unmake();
 
+	inline char PromotionPiece(PieceType type) {
+		switch (type)
+		{
+		case piece_type::KNIGHT:
+			return 'n';
+		case piece_type::BISHOP:
+			return 'b';
+		case piece_type::ROOK:
+			return 'r';
+		case piece_type::QUEEN:
+			return 'q';
+		default:
+			return '-';
+			break;
+		}
+	}
+
+	inline std::string ToString() {
+		u8 fromFile = fileOf(from);
+		u8 fromRank = rankOf(from);
+		u8 toFile = fileOf(to);
+		u8 toRank = rankOf(to);
+
+		char promotionPiece = PromotionPiece(metadata & 7);
+
+		return std::format("{:c}{:d}{:c}{:d}{:c}", fromFile + 'a', fromRank + 1, toFile + 'a', toRank + 1, promotionPiece);
+	}
+
 	inline bool operator==(Move &other) {
 		if (from != other.from) return false;
 		if (to != other.to) return false;
@@ -54,16 +83,16 @@ typedef struct Move {
 } Move;
 
 typedef struct MovesArray {
-	size_t capacity;
-	size_t start;
+	u16 capacity;
+	u16 start;
 	Move *moves;
 
 	MovesArray();
 
-	__forceinline void push(size_t size) {
+	__forceinline void push(u16 size) {
 		start += size;
 	}
-	__forceinline void pop(size_t size) {
+	__forceinline void pop(u16 size) {
 		start -= size;
 	}
 	__forceinline void resizeAdd() {
@@ -75,7 +104,7 @@ typedef struct MovesArray {
 		moves = (Move *) realloc(moves, capacity * sizeof Move);
 	}
 
-	__forceinline Move &operator[](size_t index) {
+	__forceinline Move &operator[](u8 index) {
 		return this->moves[this->start + index];
 	}
 
@@ -142,87 +171,6 @@ void Move::MakeMoveMoveCaslingRook() {
 	}
 }
 
-
-template <bool Black>
-void Move::Make() {
-	PieceType pieceType = boardState.squares[from];
-
-	boardState.SetPiece<true>(from, piece_type::NONE);
-
-	PieceType capturedPiece = boardState.squares[to];
-	if (pieceType == piece_type::PAWN && boardState.enPassantTargets.current() == fileOf(to) && isOccupied(enPassantLocations<Black>, from)) {
-		metadata |= EnPassantCapture << 4;
-		boardState.SetPiece<true>(to - forward<Black>, piece_type::NONE);
-	}
-	else if (capturedPiece != piece_type::NONE) {
-		captures++;
-		metadata |= uncoloredType(capturedPiece) << 4;
-		boardState.SetPiece<true>(to, piece_type::NONE);
-	}
-
-	PieceType promotionPiece = PromotionPiece();
-	if (promotionPiece != piece_type::NONE) {
-		promotionPiece |= pieceType & 0b1000;
-		boardState.SetPiece<false>(to, promotionPiece);
-	}
-	else {
-		boardState.SetPiece<false>(to, pieceType);
-	}
-	File enPassantTarget = NullLocation;
-	if (uncoloredType(pieceType) == piece_type::PAWN) {
-		Rank rankDifference = rankOf(to) - rankOf(from);
-		if (rankDifference == ((u8) -2) || rankDifference == 2) {
-			enPassantTarget = fileOf(to);
-		}
-	}
-	u8 mask = boardState.enPassantTargets.push(enPassantTarget);
-	metadata = metadata | mask;
-
-	MakeMoveMoveCaslingRook<Black, false>();
-
-	MakeMoveChangeCaslingRights(pieceType);
-}
-template <bool Black>
-void Move::Unmake() {
-
-	PieceType pieceType = boardState.squares[to];
-	PieceType pieceColor = pieceType & 0b1000;
-
-	PieceType capturedPiece = CapturedPiece();
-	if (capturedPiece == EnPassantCapture) {
-		if constexpr (Black) {
-			boardState.SetPiece<false>(to - forward<Black>, piece_type::WHITE_PAWN);
-			boardState.SetPiece<true>(to, piece_type::NONE);
-		}
-		else {
-			boardState.SetPiece<false>(to - forward<Black>, piece_type::BLACK_PAWN);
-			boardState.SetPiece<true>(to, piece_type::NONE);
-		}
-	}
-	else if (capturedPiece == piece_type::NONE) {
-		boardState.SetPiece<true>(to, piece_type::NONE);
-	}
-	else {
-		boardState.SetPiece<true>(to, piece_type::NONE);
-		boardState.SetPiece<false>(to, capturedPiece | (~pieceColor & 0b1000));
-	}
-
-	PieceType promotionPiece = PromotionPiece();
-	if (promotionPiece != piece_type::NONE) {
-		boardState.SetPiece<false>(from, piece_type::PAWN | pieceColor);
-	}
-	else {
-		boardState.SetPiece<false>(from, pieceType);
-	}
-	if (ChangedEnPassantTarget()) {
-		boardState.enPassantTargets.pop();
-	}
-
-	if (ChangedCaslingRights()) {
-		boardState.caslingStates.pop();
-	}
-	MakeMoveMoveCaslingRook<Black, true>();
-}
 
 template <bool Black>
 __forceinline
@@ -302,421 +250,6 @@ BoardSet kingMoveSet(BoardSet pieceSet) {
 	return kingMoves[firstOccupied(pieceSet)];
 }
 
-template <bool Black>
-void UpdateAttackAndDefendSets() {
-	PieceSets *pieceSets;
-	PieceSets *attackSets;
-	PieceSets *defendSets;
-	BoardSet enemyKing;
-	if constexpr (Black) {
-		pieceSets = &boardState.black;
-		attackSets = &boardState.blackAttacks;
-		defendSets = &boardState.blackDefends;
-		enemyKing = boardState.white.king;
-	}
-	else {
-		pieceSets = &boardState.white;
-		attackSets = &boardState.whiteAttacks;
-		defendSets = &boardState.whiteDefends;
-		enemyKing = boardState.black.king;
-	}
-	attackSets->pawn = pawnAttackSet<Black>(pieceSets->pawn);
-	defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
-	defendSets->knight = attackSets->knight = knightMoveSet(pieceSets->knight);
-	BoardSet blockingPieces = (boardState.black.all | boardState.white.all) & ~enemyKing;
-	defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop, blockingPieces);
-	defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook, blockingPieces);
-	defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen, blockingPieces);
-	defendSets->king = attackSets->king = kingMoveSet(pieceSets->king);
-
-	attackSets->all = attackSets->pawn | attackSets->knight | attackSets->bishop | attackSets->rook | attackSets->queen | attackSets->king;
-	defendSets->all = defendSets->pawn | defendSets->knight | defendSets->bishop | defendSets->rook | defendSets->queen | defendSets->king;
-}
-
-inline void AddAllMoves(size_t start, BoardSet moveSet, Move move) {
-	for (size_t i = 0; moveSet != 0; i++) {
-		Location location = extractFirstOccupied(&moveSet);
-		move.to = location;
-		moves[start + i] = move;
-	}
-}
-
-template <bool Black>
-size_t generateKingMoves(size_t start) {
-	Location location;
-	BoardSet invalidLocations;
-	if constexpr (Black) {
-		location = firstOccupied(boardState.black.king);
-		invalidLocations = boardState.black.all | boardState.whiteAttacks.all;
-	}
-	else {
-		location = firstOccupied(boardState.white.king);
-		invalidLocations = boardState.white.all | boardState.blackAttacks.all;
-	}
-	BoardSet kingMoveLocations = kingMoves[location] & ~invalidLocations;
-	AddAllMoves(start, kingMoveLocations, { location, 0, piece_type::NONE });
-	return numberOfOccupancies(kingMoveLocations);
-}
-
-template <bool Black>
-size_t generateKnightMoves(size_t start) {
-	BoardSet friendlyPieces;
-	BoardSet knightSet;
-	BoardSet pinnedSet;
-	if constexpr (Black) {
-		knightSet = boardState.black.knight;
-		friendlyPieces = boardState.black.all;
-		pinnedSet = boardState.blackPinnedSets.named.all;
-	}
-	else {
-		knightSet = boardState.white.knight;
-		friendlyPieces = boardState.white.all;
-		pinnedSet = boardState.whitePinnedSets.named.all;
-	}
-	size_t numberOfMoves = 0;
-	knightSet &= ~pinnedSet;
-	while (knightSet != 0) {
-		Location location = extractFirstOccupied(&knightSet);
-		BoardSet knightMoveLocations = knightMoves[location] & ~friendlyPieces;
-		AddAllMoves(start + numberOfMoves, knightMoveLocations, { location, 0, piece_type::NONE });
-		numberOfMoves += numberOfOccupancies(knightMoveLocations);
-	}
-	return numberOfMoves;
-}
-
-template <bool In_Promotion_Locations>
-size_t generatePawnMovesWithPossiblePromotion(size_t start, Location from, Location to) {
-	if constexpr (In_Promotion_Locations) {
-		moves[start + 0] = { from, to, piece_type::KNIGHT };
-		moves[start + 1] = { from, to, piece_type::BISHOP };
-		moves[start + 2] = { from, to, piece_type::ROOK };
-		moves[start + 3] = { from, to, piece_type::QUEEN };
-		return 4;
-	}
-	else {
-		moves[start + 0] = { from, to, piece_type::NONE };
-		return 1;
-	}
-}
-__forceinline
-size_t generatePawnMovesWithPossiblePromotion(size_t start, Location from, Location to) {
-	Rank rank = rankOf(to);
-	if (rank == 7 || rank == 0) {
-		moves[start + 0] = { from, to, piece_type::KNIGHT };
-		moves[start + 1] = { from, to, piece_type::BISHOP };
-		moves[start + 2] = { from, to, piece_type::ROOK };
-		moves[start + 3] = { from, to, piece_type::QUEEN };
-		return 4;
-	}
-	else {
-		moves[start + 0] = { from, to, piece_type::NONE };
-		return 1;
-	}
-}
-
-template <bool Black, bool In_Two_Move_Locations, bool In_Promotion_Locations>
-size_t generatePawnMoves(size_t start, BoardSet pawnSet, BoardSet allPieces) {
-	size_t numberOfMoves = 0;
-	while (pawnSet != 0) {
-		Location location = extractFirstOccupied(&pawnSet);
-		Location target = location + forward<Black>;
-		if (!isOccupied(allPieces, target)) {
-			numberOfMoves += generatePawnMovesWithPossiblePromotion<In_Promotion_Locations>(start + numberOfMoves, location, target);
-			if constexpr (In_Two_Move_Locations) {
-				target += forward<Black>;
-				if (!isOccupied(allPieces, target)) {
-					moves[start + numberOfMoves] = { location, target, piece_type::NONE };
-					numberOfMoves++;
-				}
-			}
-		}
-	}
-	return numberOfMoves;
-}
-
-template <bool Black>
-bool isEnPassantPinned(Location pawnLocation) {
-	BoardSet king;
-	BoardSet enemyRookLikes;
-	BoardSet row = enPassantLocations<Black>;
-	if constexpr (Black) {
-		king = boardState.black.king & row;
-		enemyRookLikes = (boardState.white.rook | boardState.white.queen) & row;
-	}
-	else {
-		king = boardState.white.king & row;
-		enemyRookLikes = (boardState.black.rook | boardState.black.queen) & row;
-	}
-	if (king == 0 || enemyRookLikes == 0) return false;
-	BoardSet allPieces = boardState.white.all | boardState.black.all;
-	
-	BoardSet pawn = 1ULL << pawnLocation;
-	BoardSet beforePawn = (pawn - 1);
-	BoardSet afterPawn = ~(pawn | beforePawn);
-	if (((enemyRookLikes & afterPawn) != 0 && ((king & beforePawn) != 0))) {
-		BoardSet range = bitRangeInside(king, onlyFirstBit(enemyRookLikes));
-		allPieces &= range;
-		return numberOfOccupancies(allPieces) <= 2;
-	}
-	else if (((enemyRookLikes & beforePawn) != 0 && ((king & afterPawn) != 0))) {
-		BoardSet range = bitRangeInside(onlyLastBit(enemyRookLikes), king);
-		allPieces &= range;
-		return numberOfOccupancies(allPieces) <= 2;
-	}
-	return false;
-}
-
-template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations, File Direction>
-size_t generatePawnAttacks(size_t start, BoardSet pawnSet, BoardSet enemyPieces) {
-	NamedPinnedSets *pinnedSets;
-
-	if constexpr (Black) {
-		pinnedSets = &boardState.blackPinnedSets.named;
-	}
-	else {
-		pinnedSets = &boardState.whitePinnedSets.named;
-	}
-	if constexpr (Direction == (File) 1) {
-		if constexpr (Black) pawnSet &= ~pinnedSets->positiveDiagonal;
-		else pawnSet &= ~pinnedSets->negativeDiagonal;
-	}
-	else {
-		if constexpr (Black) pawnSet &= ~pinnedSets->negativeDiagonal;
-		else pawnSet &= ~pinnedSets->positiveDiagonal;
-	}
-
-	size_t numberOfMoves = 0;
-	while (pawnSet != 0) {
-		Location location = extractFirstOccupied(&pawnSet);
-		Location target = location + forward<Black> +Direction;
-		if constexpr (In_En_Passant_Locations) {
-			File targetFile = boardState.enPassantTargets.current();
-			if (targetFile != NullLocation) {
-				File attackedFile = fileOf(location) + (u8) Direction;
-				if (targetFile == attackedFile) {
-					if (!isEnPassantPinned<Black>(location)) {
-						moves[start + numberOfMoves] = { location, target, piece_type::NONE };
-						numberOfMoves++;
-					}
-				}
-			}
-		}
-		else {
-			if (isOccupied(enemyPieces, target)) {
-				numberOfMoves += generatePawnMovesWithPossiblePromotion<In_Promotion_Locations>(start + numberOfMoves, location, target);
-			}
-		}
-	}
-	return numberOfMoves;
-}
-
-template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
-constexpr BoardSet specialMoveLocations() {
-	if constexpr (In_En_Passant_Locations) {
-		return enPassantLocations<Black>;
-	}
-	if constexpr (In_Promotion_Locations) {
-		return promotionMoveLocations<Black>;
-	}
-	return allOccupiedSet;
-}
-
-template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
-size_t generatePawnAttacksWithPossibleSpecialMoves(size_t start, BoardSet pawnSet, BoardSet enemyPieces) {
-	constexpr BoardSet specialMovesLocations = specialMoveLocations<Black, In_En_Passant_Locations, In_Promotion_Locations>();
-
-	size_t numberOfMoves = 0;
-	numberOfMoves += generatePawnAttacks<Black, In_En_Passant_Locations, In_Promotion_Locations, (File) -1>(start + numberOfMoves, pawnSet & ~AFile & specialMovesLocations, enemyPieces);
-	numberOfMoves += generatePawnAttacks<Black, In_En_Passant_Locations, In_Promotion_Locations, (File) +1>(start + numberOfMoves, pawnSet & ~HFile & specialMovesLocations, enemyPieces);
-	return numberOfMoves;
-}
-
-// Recode all pawn moves and attacks (more bit hacks (shifting for enemy set))
-template <bool Black>
-size_t generatePawnMovesAndAttacks(size_t start) {
-	BoardSet friendlyPieces;
-	BoardSet enemyPieces;
-	BoardSet allPieces;
-	BoardSet pawnSet;
-	NamedPinnedSets *pinnedSets;
-	if constexpr (Black) {
-		pawnSet = boardState.black.pawn;
-		friendlyPieces = boardState.black.all;
-		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
-	}
-	else {
-		pawnSet = boardState.white.pawn;
-		friendlyPieces = boardState.white.all;
-		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
-	}
-	allPieces = friendlyPieces | enemyPieces;
-	pawnSet &= ~pinnedSets->horizontal;
-	size_t numberOfMoves = 0;
-	// attacks
-	BoardSet attackPawnSet = pawnSet & ~pinnedSets->vertical;
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // promotions
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // en passant
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // normal
-	// moves
-	BoardSet movingPawnSet = pawnSet & ~(pinnedSets->negativeDiagonal | pinnedSets->positiveDiagonal);
-	numberOfMoves += generatePawnMoves<Black, false, true>(start + numberOfMoves, movingPawnSet & promotionMoveLocations<Black>, allPieces); // promotions
-	numberOfMoves += generatePawnMoves<Black, true, false>(start + numberOfMoves, movingPawnSet & twoMoveLocations<Black>, allPieces); // double steps
-	numberOfMoves += generatePawnMoves<Black, false, false>(start + numberOfMoves, movingPawnSet & oneMoveLocations, allPieces); // single steps
-
-	return numberOfMoves;
-}
-
-template <Location File_Direction, Location Rank_Direction>
-bool IsOnEdge(Location location) {
-	if constexpr (File_Direction == (Location) -1) {
-		if (fileOf(location) == 0) return true;
-	}
-	else if constexpr (File_Direction == (Location) 1) {
-		if (fileOf(location) == 7) return true;
-	}
-	if constexpr (Rank_Direction == (Location) -1) {
-		if (rankOf(location) == 0) return true;
-	}
-	else if constexpr (Rank_Direction == (Location) 1) {
-		if (rankOf(location) == 7) return true;
-	}
-	return false;
-}
-
-template <Location File_Direction, Location Rank_Direction>
-size_t AddAllMovesInDirection(size_t start, Location location, BoardSet enemyPieces, BoardSet friendlyPieces) {
-	constexpr Location direction = (Location) (8*Rank_Direction + File_Direction);
-
-	Location target = location;
-	size_t numberOfMoves = 0;
-	while (!IsOnEdge<File_Direction, Rank_Direction>(target)) {
-		target += direction;
-
-		if (isOccupied(friendlyPieces, target)) break;
-
-		moves[start + numberOfMoves] = { location, target, piece_type::NONE };
-		numberOfMoves++;
-
-		if (isOccupied(enemyPieces, target)) break;
-	}
-	return numberOfMoves;
-}
-
-// optimize to perfect hash function
-template <bool Black>
-size_t generateRookLikeMoves(size_t start) {
-	BoardSet friendlyPieces;
-	BoardSet enemyPieces;
-	BoardSet rookSet;
-	NamedPinnedSets *pinnedSets;
-	if constexpr (Black) {
-		rookSet = boardState.black.rook | boardState.black.queen;
-		friendlyPieces = boardState.black.all;
-		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
-	}
-	else {
-		rookSet = boardState.white.rook | boardState.white.queen;
-		friendlyPieces = boardState.white.all;
-		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
-	}
-	rookSet &= ~pinnedSets->diagonal;
-	size_t numberOfMoves = 0;
-	while (rookSet != 0) {
-		Location location = extractFirstOccupied(&rookSet);
-		if (!isOccupied(pinnedSets->vertical, location)) {
-			numberOfMoves += AddAllMovesInDirection<+1, +0>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-			numberOfMoves += AddAllMovesInDirection<-1, +0>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-		}
-		if (!isOccupied(pinnedSets->horizontal, location)) {
-			numberOfMoves += AddAllMovesInDirection<+0, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-			numberOfMoves += AddAllMovesInDirection<+0, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-		}
-	}
-	return numberOfMoves;
-}
-template <bool Black>
-size_t generateBishopLikeMoves(size_t start) {
-	BoardSet friendlyPieces;
-	BoardSet enemyPieces;
-	BoardSet bishopSet;
-	NamedPinnedSets *pinnedSets;
-	if constexpr (Black) {
-		bishopSet = boardState.black.bishop | boardState.black.queen;
-		friendlyPieces = boardState.black.all;
-		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
-	}
-	else {
-		bishopSet = boardState.white.bishop | boardState.white.queen;
-		friendlyPieces = boardState.white.all;
-		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
-	}
-	bishopSet &= ~pinnedSets->lateral;
-	size_t numberOfMoves = 0;
-	while (bishopSet != 0) {
-		Location location = extractFirstOccupied(&bishopSet);
-		if (!isOccupied(pinnedSets->positiveDiagonal, location)) {
-			numberOfMoves += AddAllMovesInDirection<-1, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-			numberOfMoves += AddAllMovesInDirection<+1, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-		}
-		if (!isOccupied(pinnedSets->negativeDiagonal, location)) {
-			numberOfMoves += AddAllMovesInDirection<+1, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-			numberOfMoves += AddAllMovesInDirection<-1, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
-		}
-	}
-	return numberOfMoves;
-}
-template <bool Black>
-size_t generateCaslingMoves(size_t start) {
-	if constexpr (Black) {
-		size_t numberOfMoves = 0;
-		constexpr BoardSet casleKingsideMask = 0b01100000ULL << 56;
-		constexpr BoardSet casleQueensideMask = 0b00001100ULL << 56;
-		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL << 56;
-		BoardSet attacked = boardState.whiteAttacks.all;
-		BoardSet pieces = boardState.black.all | boardState.white.all;
-		if (canBlackCasleKingside(boardState.caslingStates.currentState())) {
-			if (((attacked | pieces) & casleKingsideMask) == 0) {
-				moves[start + numberOfMoves] = { 074, 076, 0 };
-				numberOfMoves++;
-			}
-		}
-		if (canBlackCasleQueenside(boardState.caslingStates.currentState())) {
-			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
-				moves[start + numberOfMoves] = { 074, 072, 0 };
-				numberOfMoves++;
-			}
-		}
-		return numberOfMoves;
-	}
-	else {
-		size_t numberOfMoves = 0;
-		constexpr BoardSet casleKingsideMask = 0b01100000ULL;
-		constexpr BoardSet casleQueensideMask = 0b00001100ULL;
-		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL;
-		BoardSet attacked = boardState.blackAttacks.all;
-		BoardSet pieces = boardState.white.all | boardState.black.all;
-		if (canWhiteCasleKingside(boardState.caslingStates.currentState())) {
-			if (((attacked | pieces) & casleKingsideMask) == 0) {
-				moves[start + numberOfMoves] = { 004, 006, 0 };
-				numberOfMoves++;
-			}
-		}
-		if (canWhiteCasleQueenside(boardState.caslingStates.currentState())) {
-			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
-				moves[start + numberOfMoves] = { 004, 002, 0 };
-				numberOfMoves++;
-			}
-		}
-		return numberOfMoves;
-	}
-}
-
 template <bool After_King>
 __forceinline
 BoardSet ScanPinRay(BoardSet attackingPieces, BoardSet enemyBlockingPieces, BoardSet friendlyBlockingPieces, BoardSet ray) {
@@ -747,6 +280,36 @@ BoardSet ScanPinRay(BoardSet attackingPieces, BoardSet enemyBlockingPieces, Boar
 	else {
 		return 0;
 	}
+}
+template <bool Black>
+void UpdateAttackAndDefendSets() {
+	PieceSets *pieceSets;
+	PieceSets *attackSets;
+	PieceSets *defendSets;
+	BoardSet enemyKing;
+	if constexpr (Black) {
+		pieceSets = &boardState.black;
+		attackSets = &boardState.blackAttacks;
+		defendSets = &boardState.blackDefends;
+		enemyKing = boardState.white.king;
+	}
+	else {
+		pieceSets = &boardState.white;
+		attackSets = &boardState.whiteAttacks;
+		defendSets = &boardState.whiteDefends;
+		enemyKing = boardState.black.king;
+	}
+	attackSets->pawn = pawnAttackSet<Black>(pieceSets->pawn);
+	defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
+	defendSets->knight = attackSets->knight = knightMoveSet(pieceSets->knight);
+	BoardSet blockingPieces = (boardState.black.all | boardState.white.all) & ~enemyKing;
+	defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop, blockingPieces);
+	defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook, blockingPieces);
+	defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen, blockingPieces);
+	defendSets->king = attackSets->king = kingMoveSet(pieceSets->king);
+
+	attackSets->all = attackSets->pawn | attackSets->knight | attackSets->bishop | attackSets->rook | attackSets->queen | attackSets->king;
+	defendSets->all = defendSets->pawn | defendSets->knight | defendSets->bishop | defendSets->rook | defendSets->queen | defendSets->king;
 }
 
 template <bool Black>
@@ -840,6 +403,474 @@ void CheckUncheckedChecks() {
 	}
 }
 
+template <bool Black>
+void Move::Make() {
+	PieceType pieceType = boardState.squares[from];
+
+	boardState.SetPiece<true>(from, piece_type::NONE);
+
+	PieceType capturedPiece = boardState.squares[to];
+	if (pieceType == piece_type::PAWN && boardState.enPassantTargets.current() == fileOf(to) && isOccupied(enPassantLocations<Black>, from)) {
+		metadata |= EnPassantCapture << 4;
+		boardState.SetPiece<true>(to - forward<Black>, piece_type::NONE);
+	}
+	else if (capturedPiece != piece_type::NONE) {
+		captures++;
+		metadata |= uncoloredType(capturedPiece) << 4;
+		boardState.SetPiece<true>(to, piece_type::NONE);
+	}
+
+	PieceType promotionPiece = PromotionPiece();
+	if (promotionPiece != piece_type::NONE) {
+		promotionPiece |= pieceType & 0b1000;
+		boardState.SetPiece<false>(to, promotionPiece);
+	}
+	else {
+		boardState.SetPiece<false>(to, pieceType);
+	}
+	File enPassantTarget = NullLocation;
+	if (uncoloredType(pieceType) == piece_type::PAWN) {
+		Rank rankDifference = rankOf(to) - rankOf(from);
+		if (rankDifference == ((u8) -2) || rankDifference == 2) {
+			enPassantTarget = fileOf(to);
+		}
+	}
+	u8 mask = boardState.enPassantTargets.push(enPassantTarget);
+	metadata = metadata | mask;
+
+	MakeMoveMoveCaslingRook<Black, false>();
+
+	MakeMoveChangeCaslingRights(pieceType);
+
+	UpdateAttackAndDefendSets<Black>();
+	UpdateAttackAndDefendSets<!Black>();
+}
+template <bool Black>
+void Move::Unmake() {
+
+	PieceType pieceType = boardState.squares[to];
+	PieceType pieceColor = pieceType & 0b1000;
+
+	PieceType capturedPiece = CapturedPiece();
+	if (capturedPiece == EnPassantCapture) {
+		if constexpr (Black) {
+			boardState.SetPiece<false>(to - forward<Black>, piece_type::WHITE_PAWN);
+			boardState.SetPiece<true>(to, piece_type::NONE);
+		}
+		else {
+			boardState.SetPiece<false>(to - forward<Black>, piece_type::BLACK_PAWN);
+			boardState.SetPiece<true>(to, piece_type::NONE);
+		}
+	}
+	else if (capturedPiece == piece_type::NONE) {
+		boardState.SetPiece<true>(to, piece_type::NONE);
+	}
+	else {
+		boardState.SetPiece<true>(to, piece_type::NONE);
+		boardState.SetPiece<false>(to, capturedPiece | (~pieceColor & 0b1000));
+	}
+
+	PieceType promotionPiece = PromotionPiece();
+	if (promotionPiece != piece_type::NONE) {
+		boardState.SetPiece<false>(from, piece_type::PAWN | pieceColor);
+	}
+	else {
+		boardState.SetPiece<false>(from, pieceType);
+	}
+	if (ChangedEnPassantTarget()) {
+		boardState.enPassantTargets.pop();
+	}
+
+	if (ChangedCaslingRights()) {
+		boardState.caslingStates.pop();
+	}
+	MakeMoveMoveCaslingRook<Black, true>();
+}
+
+inline void AddAllMoves(u8 start, BoardSet moveSet, Move move) {
+	for (u8 i = 0; moveSet != 0; i++) {
+		Location location = extractFirstOccupied(&moveSet);
+		move.to = location;
+		moves[start + i] = move;
+	}
+}
+
+template <bool Black>
+u8 generateKingMoves(u8 start) {
+	Location location;
+	BoardSet invalidLocations;
+	if constexpr (Black) {
+		location = firstOccupied(boardState.black.king);
+		invalidLocations = boardState.black.all | boardState.whiteAttacks.all;
+	}
+	else {
+		location = firstOccupied(boardState.white.king);
+		invalidLocations = boardState.white.all | boardState.blackAttacks.all;
+	}
+	BoardSet kingMoveLocations = kingMoves[location] & ~invalidLocations;
+	AddAllMoves(start, kingMoveLocations, { location, 0, piece_type::NONE });
+	return numberOfOccupancies(kingMoveLocations);
+}
+
+template <bool Black>
+u8 generateKnightMoves(u8 start) {
+	BoardSet friendlyPieces;
+	BoardSet knightSet;
+	BoardSet pinnedSet;
+	if constexpr (Black) {
+		knightSet = boardState.black.knight;
+		friendlyPieces = boardState.black.all;
+		pinnedSet = boardState.blackPinnedSets.named.all;
+	}
+	else {
+		knightSet = boardState.white.knight;
+		friendlyPieces = boardState.white.all;
+		pinnedSet = boardState.whitePinnedSets.named.all;
+	}
+	u8 numberOfMoves = 0;
+	knightSet &= ~pinnedSet;
+	while (knightSet != 0) {
+		Location location = extractFirstOccupied(&knightSet);
+		BoardSet knightMoveLocations = knightMoves[location] & ~friendlyPieces;
+		AddAllMoves(start + numberOfMoves, knightMoveLocations, { location, 0, piece_type::NONE });
+		numberOfMoves += numberOfOccupancies(knightMoveLocations);
+	}
+	return numberOfMoves;
+}
+
+template <bool In_Promotion_Locations>
+u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) {
+	if constexpr (In_Promotion_Locations) {
+		moves[start + 0] = { from, to, piece_type::KNIGHT };
+		moves[start + 1] = { from, to, piece_type::BISHOP };
+		moves[start + 2] = { from, to, piece_type::ROOK };
+		moves[start + 3] = { from, to, piece_type::QUEEN };
+		return 4;
+	}
+	else {
+		moves[start + 0] = { from, to, piece_type::NONE };
+		return 1;
+	}
+}
+__forceinline
+u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) {
+	Rank rank = rankOf(to);
+	if (rank == 7 || rank == 0) {
+		moves[start + 0] = { from, to, piece_type::KNIGHT };
+		moves[start + 1] = { from, to, piece_type::BISHOP };
+		moves[start + 2] = { from, to, piece_type::ROOK };
+		moves[start + 3] = { from, to, piece_type::QUEEN };
+		return 4;
+	}
+	else {
+		moves[start + 0] = { from, to, piece_type::NONE };
+		return 1;
+	}
+}
+
+template <bool Black, bool In_Two_Move_Locations, bool In_Promotion_Locations>
+u8 generatePawnMoves(u8 start, BoardSet pawnSet, BoardSet allPieces) {
+	u8 numberOfMoves = 0;
+	while (pawnSet != 0) {
+		Location location = extractFirstOccupied(&pawnSet);
+		Location target = location + forward<Black>;
+		if (!isOccupied(allPieces, target)) {
+			numberOfMoves += generatePawnMovesWithPossiblePromotion<In_Promotion_Locations>(start + numberOfMoves, location, target);
+			if constexpr (In_Two_Move_Locations) {
+				target += forward<Black>;
+				if (!isOccupied(allPieces, target)) {
+					moves[start + numberOfMoves] = { location, target, piece_type::NONE };
+					numberOfMoves++;
+				}
+			}
+		}
+	}
+	return numberOfMoves;
+}
+
+template <bool Black>
+bool isEnPassantPinned(Location pawnLocation) {
+	BoardSet king;
+	BoardSet enemyRookLikes;
+	BoardSet row = enPassantLocations<Black>;
+	if constexpr (Black) {
+		king = boardState.black.king & row;
+		enemyRookLikes = (boardState.white.rook | boardState.white.queen) & row;
+	}
+	else {
+		king = boardState.white.king & row;
+		enemyRookLikes = (boardState.black.rook | boardState.black.queen) & row;
+	}
+	if (king == 0 || enemyRookLikes == 0) return false;
+	BoardSet allPieces = boardState.white.all | boardState.black.all;
+	
+	BoardSet pawn = 1ULL << pawnLocation;
+	BoardSet beforePawn = (pawn - 1);
+	BoardSet afterPawn = ~(pawn | beforePawn);
+	if (((enemyRookLikes & afterPawn) != 0 && ((king & beforePawn) != 0))) {
+		BoardSet range = bitRangeInside(king, onlyFirstBit(enemyRookLikes));
+		allPieces &= range;
+		return numberOfOccupancies(allPieces) <= 2;
+	}
+	else if (((enemyRookLikes & beforePawn) != 0 && ((king & afterPawn) != 0))) {
+		BoardSet range = bitRangeInside(onlyLastBit(enemyRookLikes), king);
+		allPieces &= range;
+		return numberOfOccupancies(allPieces) <= 2;
+	}
+	return false;
+}
+
+template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations, File Direction>
+u8 generatePawnAttacks(u8 start, BoardSet pawnSet, BoardSet enemyPieces) {
+	NamedPinnedSets *pinnedSets;
+
+	if constexpr (Black) {
+		pinnedSets = &boardState.blackPinnedSets.named;
+	}
+	else {
+		pinnedSets = &boardState.whitePinnedSets.named;
+	}
+	if constexpr (Direction == (File) 1) {
+		if constexpr (Black) pawnSet &= ~pinnedSets->positiveDiagonal;
+		else pawnSet &= ~pinnedSets->negativeDiagonal;
+	}
+	else {
+		if constexpr (Black) pawnSet &= ~pinnedSets->negativeDiagonal;
+		else pawnSet &= ~pinnedSets->positiveDiagonal;
+	}
+
+	u8 numberOfMoves = 0;
+	while (pawnSet != 0) {
+		Location location = extractFirstOccupied(&pawnSet);
+		Location target = location + forward<Black> +Direction;
+		if constexpr (In_En_Passant_Locations) {
+			File targetFile = boardState.enPassantTargets.current();
+			if (targetFile != NullLocation) {
+				File attackedFile = fileOf(location) + (u8) Direction;
+				if (targetFile == attackedFile) {
+					if (!isEnPassantPinned<Black>(location)) {
+						moves[start + numberOfMoves] = { location, target, piece_type::NONE };
+						numberOfMoves++;
+					}
+				}
+			}
+		}
+		else {
+			if (isOccupied(enemyPieces, target)) {
+				numberOfMoves += generatePawnMovesWithPossiblePromotion<In_Promotion_Locations>(start + numberOfMoves, location, target);
+			}
+		}
+	}
+	return numberOfMoves;
+}
+
+template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
+constexpr BoardSet specialMoveLocations() {
+	if constexpr (In_En_Passant_Locations) {
+		return enPassantLocations<Black>;
+	}
+	if constexpr (In_Promotion_Locations) {
+		return promotionMoveLocations<Black>;
+	}
+	return allOccupiedSet;
+}
+
+template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
+u8 generatePawnAttacksWithPossibleSpecialMoves(u8 start, BoardSet pawnSet, BoardSet enemyPieces) {
+	constexpr BoardSet specialMovesLocations = specialMoveLocations<Black, In_En_Passant_Locations, In_Promotion_Locations>();
+
+	u8 numberOfMoves = 0;
+	numberOfMoves += generatePawnAttacks<Black, In_En_Passant_Locations, In_Promotion_Locations, (File) -1>(start + numberOfMoves, pawnSet & ~AFile & specialMovesLocations, enemyPieces);
+	numberOfMoves += generatePawnAttacks<Black, In_En_Passant_Locations, In_Promotion_Locations, (File) +1>(start + numberOfMoves, pawnSet & ~HFile & specialMovesLocations, enemyPieces);
+	return numberOfMoves;
+}
+
+// Recode all pawn moves and attacks (more bit hacks (shifting for enemy set))
+template <bool Black>
+u8 generatePawnMovesAndAttacks(u8 start) {
+	BoardSet friendlyPieces;
+	BoardSet enemyPieces;
+	BoardSet allPieces;
+	BoardSet pawnSet;
+	NamedPinnedSets *pinnedSets;
+	if constexpr (Black) {
+		pawnSet = boardState.black.pawn;
+		friendlyPieces = boardState.black.all;
+		enemyPieces = boardState.white.all;
+		pinnedSets = &boardState.blackPinnedSets.named;
+	}
+	else {
+		pawnSet = boardState.white.pawn;
+		friendlyPieces = boardState.white.all;
+		enemyPieces = boardState.black.all;
+		pinnedSets = &boardState.whitePinnedSets.named;
+	}
+	allPieces = friendlyPieces | enemyPieces;
+	pawnSet &= ~pinnedSets->horizontal;
+	u8 numberOfMoves = 0;
+	// attacks
+	BoardSet attackPawnSet = pawnSet & ~pinnedSets->vertical;
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // promotions
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // en passant
+	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // normal
+	// moves
+	BoardSet movingPawnSet = pawnSet & ~(pinnedSets->negativeDiagonal | pinnedSets->positiveDiagonal);
+	numberOfMoves += generatePawnMoves<Black, false, true>(start + numberOfMoves, movingPawnSet & promotionMoveLocations<Black>, allPieces); // promotions
+	numberOfMoves += generatePawnMoves<Black, true, false>(start + numberOfMoves, movingPawnSet & twoMoveLocations<Black>, allPieces); // double steps
+	numberOfMoves += generatePawnMoves<Black, false, false>(start + numberOfMoves, movingPawnSet & oneMoveLocations, allPieces); // single steps
+
+	return numberOfMoves;
+}
+
+template <Location File_Direction, Location Rank_Direction>
+bool IsOnEdge(Location location) {
+	if constexpr (File_Direction == (Location) -1) {
+		if (fileOf(location) == 0) return true;
+	}
+	else if constexpr (File_Direction == (Location) 1) {
+		if (fileOf(location) == 7) return true;
+	}
+	if constexpr (Rank_Direction == (Location) -1) {
+		if (rankOf(location) == 0) return true;
+	}
+	else if constexpr (Rank_Direction == (Location) 1) {
+		if (rankOf(location) == 7) return true;
+	}
+	return false;
+}
+
+template <Location File_Direction, Location Rank_Direction>
+u8 AddAllMovesInDirection(u8 start, Location location, BoardSet enemyPieces, BoardSet friendlyPieces) {
+	constexpr Location direction = (Location) (8*Rank_Direction + File_Direction);
+
+	Location target = location;
+	u8 numberOfMoves = 0;
+	while (!IsOnEdge<File_Direction, Rank_Direction>(target)) {
+		target += direction;
+
+		if (isOccupied(friendlyPieces, target)) break;
+
+		moves[start + numberOfMoves] = { location, target, piece_type::NONE };
+		numberOfMoves++;
+
+		if (isOccupied(enemyPieces, target)) break;
+	}
+	return numberOfMoves;
+}
+
+// optimize to perfect hash function
+template <bool Black>
+u8 generateRookLikeMoves(u8 start) {
+	BoardSet friendlyPieces;
+	BoardSet enemyPieces;
+	BoardSet rookSet;
+	NamedPinnedSets *pinnedSets;
+	if constexpr (Black) {
+		rookSet = boardState.black.rook | boardState.black.queen;
+		friendlyPieces = boardState.black.all;
+		enemyPieces = boardState.white.all;
+		pinnedSets = &boardState.blackPinnedSets.named;
+	}
+	else {
+		rookSet = boardState.white.rook | boardState.white.queen;
+		friendlyPieces = boardState.white.all;
+		enemyPieces = boardState.black.all;
+		pinnedSets = &boardState.whitePinnedSets.named;
+	}
+	rookSet &= ~pinnedSets->diagonal;
+	u8 numberOfMoves = 0;
+	while (rookSet != 0) {
+		Location location = extractFirstOccupied(&rookSet);
+		if (!isOccupied(pinnedSets->vertical, location)) {
+			numberOfMoves += AddAllMovesInDirection<+1, +0>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+			numberOfMoves += AddAllMovesInDirection<-1, +0>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+		}
+		if (!isOccupied(pinnedSets->horizontal, location)) {
+			numberOfMoves += AddAllMovesInDirection<+0, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+			numberOfMoves += AddAllMovesInDirection<+0, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+		}
+	}
+	return numberOfMoves;
+}
+template <bool Black>
+u8 generateBishopLikeMoves(u8 start) {
+	BoardSet friendlyPieces;
+	BoardSet enemyPieces;
+	BoardSet bishopSet;
+	NamedPinnedSets *pinnedSets;
+	if constexpr (Black) {
+		bishopSet = boardState.black.bishop | boardState.black.queen;
+		friendlyPieces = boardState.black.all;
+		enemyPieces = boardState.white.all;
+		pinnedSets = &boardState.blackPinnedSets.named;
+	}
+	else {
+		bishopSet = boardState.white.bishop | boardState.white.queen;
+		friendlyPieces = boardState.white.all;
+		enemyPieces = boardState.black.all;
+		pinnedSets = &boardState.whitePinnedSets.named;
+	}
+	bishopSet &= ~pinnedSets->lateral;
+	u8 numberOfMoves = 0;
+	while (bishopSet != 0) {
+		Location location = extractFirstOccupied(&bishopSet);
+		if (!isOccupied(pinnedSets->positiveDiagonal, location)) {
+			numberOfMoves += AddAllMovesInDirection<-1, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+			numberOfMoves += AddAllMovesInDirection<+1, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+		}
+		if (!isOccupied(pinnedSets->negativeDiagonal, location)) {
+			numberOfMoves += AddAllMovesInDirection<+1, +1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+			numberOfMoves += AddAllMovesInDirection<-1, -1>(start + numberOfMoves, location, enemyPieces, friendlyPieces);
+		}
+	}
+	return numberOfMoves;
+}
+template <bool Black>
+u8 generateCaslingMoves(u8 start) {
+	if constexpr (Black) {
+		u8 numberOfMoves = 0;
+		constexpr BoardSet casleKingsideMask = 0b01100000ULL << 56;
+		constexpr BoardSet casleQueensideMask = 0b00001100ULL << 56;
+		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL << 56;
+		BoardSet attacked = boardState.whiteAttacks.all;
+		BoardSet pieces = boardState.black.all | boardState.white.all;
+		if (canBlackCasleKingside(boardState.caslingStates.currentState())) {
+			if (((attacked | pieces) & casleKingsideMask) == 0) {
+				moves[start + numberOfMoves] = { 074, 076, 0 };
+				numberOfMoves++;
+			}
+		}
+		if (canBlackCasleQueenside(boardState.caslingStates.currentState())) {
+			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
+				moves[start + numberOfMoves] = { 074, 072, 0 };
+				numberOfMoves++;
+			}
+		}
+		return numberOfMoves;
+	}
+	else {
+		u8 numberOfMoves = 0;
+		constexpr BoardSet casleKingsideMask = 0b01100000ULL;
+		constexpr BoardSet casleQueensideMask = 0b00001100ULL;
+		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL;
+		BoardSet attacked = boardState.blackAttacks.all;
+		BoardSet pieces = boardState.white.all | boardState.black.all;
+		if (canWhiteCasleKingside(boardState.caslingStates.currentState())) {
+			if (((attacked | pieces) & casleKingsideMask) == 0) {
+				moves[start + numberOfMoves] = { 004, 006, 0 };
+				numberOfMoves++;
+			}
+		}
+		if (canWhiteCasleQueenside(boardState.caslingStates.currentState())) {
+			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
+				moves[start + numberOfMoves] = { 004, 002, 0 };
+				numberOfMoves++;
+			}
+		}
+		return numberOfMoves;
+	}
+}
+
 inline BoardSet RayBlocks(BoardSet blockingBishopLikePieces, BoardSet blockingRookLikePieces, Location blockingLocation, BoardSet blockingLocationSet) {
 	BoardSet allPieces = boardState.black.all | boardState.white.all;
 
@@ -872,7 +903,7 @@ inline BoardSet RayBlocks(BoardSet blockingBishopLikePieces, BoardSet blockingRo
 
 // also capturing the checking piece
 template <bool Black>
-size_t GenerateBlockingMoves(size_t start) {
+u8 GenerateBlockingMoves(u8 start) {
 	CheckData &checkData = boardState.checkData;
 	PieceSets pieceSets;
 	BoardSet pinnedSet;
@@ -895,7 +926,7 @@ size_t GenerateBlockingMoves(size_t start) {
 	pieceSets.rook &= ~pinnedSet;
 	pieceSets.queen &= ~pinnedSet;
 
-	size_t numberOfMoves = 0;
+	u8 numberOfMoves = 0;
 
 	/* pawn captures */ {
 		Location checkLocation = firstOccupied(checkSource);
@@ -953,17 +984,14 @@ size_t GenerateBlockingMoves(size_t start) {
 }
 
 template <bool Black>
-size_t GenerateMoves() {
+u8 GenerateMoves() {
 	if (moves.start + 350 > moves.capacity) {
 		moves.resizeAdd();
 	}
-	UpdateAttackAndDefendSets<Black>();
-	UpdateAttackAndDefendSets<!Black>();
 	GeneratePinnedSets<Black>();
 	CheckUncheckedChecks<Black>();
 
-	size_t movesSize = 0;
-	movesSize += generateKingMoves<Black>(movesSize);
+	u8 movesSize = 0;
 	if (boardState.checkData.checkCount == 0) {
 		movesSize += generateCaslingMoves<Black>(movesSize);
 		movesSize += generatePawnMovesAndAttacks<Black>(movesSize);
@@ -974,6 +1002,7 @@ size_t GenerateMoves() {
 	else if (boardState.checkData.checkCount == 1) {
 		movesSize += GenerateBlockingMoves<Black>(movesSize);
 	}
+	movesSize += generateKingMoves<Black>(movesSize);
 	return movesSize;
 }
 

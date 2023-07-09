@@ -8,6 +8,7 @@
 
 #define BoardSet uint64_t
 #define u8 uint8_t
+#define u16 uint16_t
 #define ChangeCaslingMask u8
 #define CaslingState u8
 #define Location u8
@@ -206,8 +207,8 @@ typedef union PinnedSets {
 	}
 } PinnedSets;
 typedef struct CheckData {
-	u8 checkCount;
-	BoardSet checkRay;
+	u8 checkCount = 0;
+	BoardSet checkRay = 0;
 	BoardSet checkSource;
 
 	inline bool operator==(CheckData &other) {
@@ -246,6 +247,7 @@ typedef struct CaptureStack {
 		return true;
 	}
 } CaptureStack;
+
 
 typedef struct BoardState {
 
@@ -336,7 +338,6 @@ typedef struct BoardState {
 
 } BoardState;
 bool CreateFromFEN(std::string fen, BoardState &boardState);
-
 
 extern BoardState boardState;
 

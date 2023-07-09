@@ -41,7 +41,7 @@
     <ClInclude Include="BoardRepresentation.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="NNUE.h">
+    <ClInclude Include="Evaluator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="MoveSets.h">

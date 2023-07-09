@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <chrono>
+#include <format>
 #include "MoveGen.h"
 
 u8 max_depth = 5;
@@ -26,22 +27,17 @@ size_t perft(u8 depth) {
     return count;
 }
 
-#ifdef DEBUG
-#include <format>
-inline Move movesPlayed[10];
-inline Move movesUnplayed[10];
-
 inline char PromotionPiece(PieceType type) {
     switch (type)
     {
     case piece_type::KNIGHT:
-        return 'N';
+        return 'n';
     case piece_type::BISHOP:
-        return 'B';
+        return 'b';
     case piece_type::ROOK:
-        return 'R';
+        return 'r';
     case piece_type::QUEEN:
-        return 'Q';
+        return 'q';
     default:
         return '-';
         break;
@@ -58,16 +54,39 @@ inline std::string MoveToString(Move move) {
 
     char promotionPiece = PromotionPiece(move.metadata & 7);
 
-    return std::format("{:c}{:d}{:c}{:d}", fromFile + 'a', fromRank + 1, toFile + 'a', toRank + 1);
+    return std::format("{:c}{:d}{:c}{:d}{:c}", fromFile + 'a', fromRank + 1, toFile + 'a', toRank + 1, promotionPiece);
 }
 inline Move StringToMove(std::string moveStr) {
     Move moveMove;
-    if (moveStr.size() != 4) throw std::invalid_argument("Size of string is not 5");
+    if (moveStr.size() != 4 && moveStr.size() != 5) throw std::invalid_argument("Size of string is not 4 or 5");
     moveMove.from = (moveStr[0] - 'a') + 8*(moveStr[1] - '1');
     moveMove.to = (moveStr[2] - 'a') + 8*(moveStr[3] - '1');
     moveMove.metadata = 0;
+    if (moveStr.size() == 5) {
+        switch (moveStr[4]) {
+        case 'n':
+            moveMove.metadata = piece_type::KNIGHT;
+            break;
+        case 'b':
+            moveMove.metadata = piece_type::BISHOP;
+            break;
+        case 'r':
+            moveMove.metadata = piece_type::ROOK;
+            break;
+        case 'q':
+            moveMove.metadata = piece_type::QUEEN;
+            break;
+        default:
+            break;
+        }
+    }
     return moveMove;
 }
+
+#ifdef DEBUG
+inline Move movesPlayed[10];
+inline Move movesUnplayed[10];
+
 inline std::string MoveInitiatorString(Move move) {
     return std::format("{{ {:#03o}, {:#03o}, {:#03b} }}, ", move.from, move.to, move.metadata);
 }
@@ -98,7 +117,7 @@ size_t perftDebug(u8 depth, u8 max_depth) {
     if (depth == 0) {
         return 1;
     }
-    size_t movesLength = GenerateMoves<Black>();
+    u8 movesLength = GenerateMoves<Black>();
     size_t count = 0;
 
     movesPlayed[max_depth-depth] = {};
@@ -139,7 +158,7 @@ size_t perftDebug(u8 depth, u8 max_depth) {
 
 template <bool Black>
 bool exploreMove() {
-    size_t movesLength = GenerateMoves<Black>();
+    u8 movesLength = GenerateMoves<Black>();
     std::cout << movesLength << std::endl;
     for (int i = 0; i<movesLength; i++) {
         std::cout << std::format("{:3d}", i) << ": " << MoveToString(moves[i]) << " " << MoveInitiatorString(moves[i]) << std::endl;
@@ -175,14 +194,14 @@ template <bool Black>
 bool explorePerft(u8 depth) {
     if (depth == 0) return false;
     while (depth <= max_depth) {
-        size_t movesLength = GenerateMoves<Black>();
+        u8 movesLength = GenerateMoves<Black>();
         size_t count = 0;
         std::cout << movesLength << std::endl;
         for (int i = 0; i<movesLength; i++) {
             std::cout << std::format("{:3d}", i) << ": " << MoveToString(moves[i]) << ": ";
             moves[i].Make<Black>();
             moves.push(movesLength);
-            size_t current = perft<!Black>(depth - 1);
+            size_t current = perftDebug<!Black>(depth - 1, max_depth);
             count += current;
             std::cout << (long) current << std::endl;
             moves.pop(movesLength);
