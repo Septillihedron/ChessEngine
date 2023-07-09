@@ -9,4 +9,6 @@
 #include "NNUE.h"
 
 template <bool Maximizing>
-PositionValue AlphaBeta(u8 depth);
+PositionValue AlphaBeta(u8 depth) {
+
+}

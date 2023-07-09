@@ -5,11 +5,15 @@
 #include "BoardRepresentation.h"
 #include "MoveSets.h"
 
-// 0CCCRPPP
-// C = captured piece
-// R = changed casling rights
-// P = promotion piece
+// ECCCRPPP
+// EC = EnPassant capture
+// E  = Changed EnPassant target
+// C  = captured piece
+// R  = changed casling rights
+// P  = promotion piece
 #define MoveMetadata u8
+
+constexpr MoveMetadata EnPassantCapture = 0b111;
 
 typedef struct Move {
 	Location from;
@@ -23,10 +27,15 @@ typedef struct Move {
 		return (metadata >> 3) & 1;
 	}
 	__forceinline PieceType CapturedPiece() {
-		return (metadata >> 4);
+		return (metadata >> 4) & 7;
+	}
+	__forceinline bool ChangedEnPassantTarget() {
+		return metadata >> 7;
 	}
 
-	void MakeMoveChangeCaslingRights();
+	void MakeMoveChangeCaslingRights(PieceType pieceType);
+	template <bool Black, bool Unmake>
+	void MakeMoveMoveCaslingRook();
 	template <bool Black>
 	void Make();
 	inline void Make(bool Black) {
@@ -76,40 +85,63 @@ extern MovesArray moves;
 
 extern int captures;
 
-inline void Move::MakeMoveChangeCaslingRights() {
+inline void Move::MakeMoveChangeCaslingRights(PieceType pieceType) {
+	CaslingState caslingState = boardState.caslingStates.currentState();
 	if (from == 0 || to == 0) {
-		CaslingState caslingState = boardState.caslingStates.currentState();
 		caslingState &= ~0b0010;
-		metadata |= boardState.caslingStates.push(caslingState);
 	}
-	else if (from == 7 || to == 7) {
-		CaslingState caslingState = boardState.caslingStates.currentState();
+	if (from == 7 || to == 7) {
 		caslingState &= ~0b0001;
-		metadata |= boardState.caslingStates.push(caslingState);
 	}
-	else if (from == 56 || to == 56) {
-		CaslingState caslingState = boardState.caslingStates.currentState();
+	if (from == 56 || to == 56) {
 		caslingState &= ~0b1000;
-		metadata |= boardState.caslingStates.push(caslingState);
 	}
-	else if (from == 63 || to == 63) {
-		CaslingState caslingState = boardState.caslingStates.currentState();
+	if (from == 63 || to == 63) {
 		caslingState &= ~0b0100;
-		metadata |= boardState.caslingStates.push(caslingState);
 	}
 
-	PieceType pieceType = boardState.squares[from];
 	if (pieceType == piece_type::WHITE_KING) {
-		CaslingState caslingState = boardState.caslingStates.currentState();
 		caslingState &= ~0b0011;
-		metadata |= boardState.caslingStates.push(caslingState);
 	}
 	else if (pieceType == piece_type::BLACK_KING) {
-		CaslingState caslingState = boardState.caslingStates.currentState();
 		caslingState &= ~0b1100;
-		metadata |= boardState.caslingStates.push(caslingState);
+	}
+	metadata |= boardState.caslingStates.push(caslingState);
+}
+
+template <bool Black, bool Reversed>
+void Move::MakeMoveMoveCaslingRook() {
+	CaslingState caslingState = boardState.caslingStates.currentState();
+	if constexpr (Black) {
+		if (canBlackCasleKingside(caslingState)) {
+			if (from == 074 && to == 076) {
+				boardState.SetPiece<true>(Reversed? 075 : 077, piece_type::NONE);
+				boardState.SetPiece<false>(Reversed? 077 : 075, piece_type::BLACK_ROOK);
+			}
+		}
+		if (canBlackCasleQueenside(caslingState)) {
+			if (from == 074 && to == 072) {
+				boardState.SetPiece<true>(Reversed? 073 : 070, piece_type::NONE);
+				boardState.SetPiece<false>(Reversed? 070 : 073, piece_type::BLACK_ROOK);
+			}
+		}
+	}
+	else {
+		if (canWhiteCasleKingside(caslingState)) {
+			if (from == 004 && to == 006) {
+				boardState.SetPiece<true>(Reversed? 005 : 007, piece_type::NONE);
+				boardState.SetPiece<false>(Reversed? 007 : 005, piece_type::WHITE_ROOK);
+			}
+		}
+		if (canWhiteCasleQueenside(caslingState)) {
+			if (from == 004 && to == 002) {
+				boardState.SetPiece<true>(Reversed? 003 : 000, piece_type::NONE);
+				boardState.SetPiece<false>(Reversed? 000 : 003, piece_type::WHITE_ROOK);
+			}
+		}
 	}
 }
+
 
 template <bool Black>
 void Move::Make() {
@@ -118,7 +150,11 @@ void Move::Make() {
 	boardState.SetPiece<true>(from, piece_type::NONE);
 
 	PieceType capturedPiece = boardState.squares[to];
-	if (capturedPiece != piece_type::NONE) {
+	if (pieceType == piece_type::PAWN && boardState.enPassantTargets.current() == fileOf(to) && isOccupied(enPassantLocations<Black>, from)) {
+		metadata |= EnPassantCapture << 4;
+		boardState.SetPiece<true>(to - forward<Black>, piece_type::NONE);
+	}
+	else if (capturedPiece != piece_type::NONE) {
 		captures++;
 		metadata |= uncoloredType(capturedPiece) << 4;
 		boardState.SetPiece<true>(to, piece_type::NONE);
@@ -132,14 +168,19 @@ void Move::Make() {
 	else {
 		boardState.SetPiece<false>(to, pieceType);
 	}
+	File enPassantTarget = NullLocation;
 	if (uncoloredType(pieceType) == piece_type::PAWN) {
-		Rank rank = rankOf(to);
-		if (rank == 3 || rank == 4) {
-			boardState.enPassantTarget = to - forward<Black>;
+		Rank rankDifference = rankOf(to) - rankOf(from);
+		if (rankDifference == ((u8) -2) || rankDifference == 2) {
+			enPassantTarget = fileOf(to);
 		}
 	}
+	u8 mask = boardState.enPassantTargets.push(enPassantTarget);
+	metadata = metadata | mask;
 
-	MakeMoveChangeCaslingRights();
+	MakeMoveMoveCaslingRook<Black, false>();
+
+	MakeMoveChangeCaslingRights(pieceType);
 }
 template <bool Black>
 void Move::Unmake() {
@@ -148,7 +189,17 @@ void Move::Unmake() {
 	PieceType pieceColor = pieceType & 0b1000;
 
 	PieceType capturedPiece = CapturedPiece();
-	if (capturedPiece == piece_type::NONE) {
+	if (capturedPiece == EnPassantCapture) {
+		if constexpr (Black) {
+			boardState.SetPiece<false>(to - forward<Black>, piece_type::WHITE_PAWN);
+			boardState.SetPiece<true>(to, piece_type::NONE);
+		}
+		else {
+			boardState.SetPiece<false>(to - forward<Black>, piece_type::BLACK_PAWN);
+			boardState.SetPiece<true>(to, piece_type::NONE);
+		}
+	}
+	else if (capturedPiece == piece_type::NONE) {
 		boardState.SetPiece<true>(to, piece_type::NONE);
 	}
 	else {
@@ -163,23 +214,21 @@ void Move::Unmake() {
 	else {
 		boardState.SetPiece<false>(from, pieceType);
 	}
-	if (uncoloredType(pieceType) == piece_type::PAWN) {
-		Rank rank = rankOf(to);
-		if (rank == 3 || rank == 4) {
-			boardState.enPassantTarget = to - forward<Black>;
-		}
+	if (ChangedEnPassantTarget()) {
+		boardState.enPassantTargets.pop();
 	}
 
 	if (ChangedCaslingRights()) {
 		boardState.caslingStates.pop();
 	}
+	MakeMoveMoveCaslingRook<Black, true>();
 }
 
 template <bool Black>
 __forceinline
 BoardSet pawnAttackSet(BoardSet pieceSet) {
 	if constexpr (Black) {
-		return ((pieceSet & ~AFile) >> (8-1)) | ((pieceSet & ~HFile) >> (8+1)); // left and right attacks
+		return ((pieceSet & ~HFile) >> (8-1)) | ((pieceSet & ~AFile) >> (8+1)); // left and right attacks
 	}
 	else {
 		return ((pieceSet & ~AFile) << (8-1)) | ((pieceSet & ~HFile) << (8+1)); // left and right attacks
@@ -385,6 +434,38 @@ size_t generatePawnMoves(size_t start, BoardSet pawnSet, BoardSet allPieces) {
 	return numberOfMoves;
 }
 
+template <bool Black>
+bool isEnPassantPinned(Location pawnLocation) {
+	BoardSet king;
+	BoardSet enemyRookLikes;
+	BoardSet row = enPassantLocations<Black>;
+	if constexpr (Black) {
+		king = boardState.black.king & row;
+		enemyRookLikes = (boardState.white.rook | boardState.white.queen) & row;
+	}
+	else {
+		king = boardState.white.king & row;
+		enemyRookLikes = (boardState.black.rook | boardState.black.queen) & row;
+	}
+	if (king == 0 || enemyRookLikes == 0) return false;
+	BoardSet allPieces = boardState.white.all | boardState.black.all;
+	
+	BoardSet pawn = 1ULL << pawnLocation;
+	BoardSet beforePawn = (pawn - 1);
+	BoardSet afterPawn = ~(pawn | beforePawn);
+	if (((enemyRookLikes & afterPawn) != 0 && ((king & beforePawn) != 0))) {
+		BoardSet range = bitRangeInside(king, onlyFirstBit(enemyRookLikes));
+		allPieces &= range;
+		return numberOfOccupancies(allPieces) <= 2;
+	}
+	else if (((enemyRookLikes & beforePawn) != 0 && ((king & afterPawn) != 0))) {
+		BoardSet range = bitRangeInside(onlyLastBit(enemyRookLikes), king);
+		allPieces &= range;
+		return numberOfOccupancies(allPieces) <= 2;
+	}
+	return false;
+}
+
 template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations, File Direction>
 size_t generatePawnAttacks(size_t start, BoardSet pawnSet, BoardSet enemyPieces) {
 	NamedPinnedSets *pinnedSets;
@@ -396,20 +477,12 @@ size_t generatePawnAttacks(size_t start, BoardSet pawnSet, BoardSet enemyPieces)
 		pinnedSets = &boardState.whitePinnedSets.named;
 	}
 	if constexpr (Direction == (File) 1) {
-		if constexpr (Black) {
-			pawnSet &= ~pinnedSets->positiveDiagonal;
-		}
-		else {
-			pawnSet &= ~pinnedSets->negativeDiagonal;
-		}
+		if constexpr (Black) pawnSet &= ~pinnedSets->positiveDiagonal;
+		else pawnSet &= ~pinnedSets->negativeDiagonal;
 	}
 	else {
-		if constexpr (Black) {
-			pawnSet &= ~pinnedSets->negativeDiagonal;
-		}
-		else {
-			pawnSet &= ~pinnedSets->positiveDiagonal;
-		}
+		if constexpr (Black) pawnSet &= ~pinnedSets->negativeDiagonal;
+		else pawnSet &= ~pinnedSets->positiveDiagonal;
 	}
 
 	size_t numberOfMoves = 0;
@@ -417,10 +490,14 @@ size_t generatePawnAttacks(size_t start, BoardSet pawnSet, BoardSet enemyPieces)
 		Location location = extractFirstOccupied(&pawnSet);
 		Location target = location + forward<Black> +Direction;
 		if constexpr (In_En_Passant_Locations) {
-			if (boardState.enPassantTarget != NullLocation) {
-				if (boardState.enPassantTarget == fileOf(location) + Direction) {
-					moves[start + numberOfMoves] = { location, target, piece_type::NONE };
-					numberOfMoves++;
+			File targetFile = boardState.enPassantTargets.current();
+			if (targetFile != NullLocation) {
+				File attackedFile = fileOf(location) + (u8) Direction;
+				if (targetFile == attackedFile) {
+					if (!isEnPassantPinned<Black>(location)) {
+						moves[start + numberOfMoves] = { location, target, piece_type::NONE };
+						numberOfMoves++;
+					}
 				}
 			}
 		}
@@ -594,6 +671,51 @@ size_t generateBishopLikeMoves(size_t start) {
 	}
 	return numberOfMoves;
 }
+template <bool Black>
+size_t generateCaslingMoves(size_t start) {
+	if constexpr (Black) {
+		size_t numberOfMoves = 0;
+		constexpr BoardSet casleKingsideMask = 0b01100000ULL << 56;
+		constexpr BoardSet casleQueensideMask = 0b00001100ULL << 56;
+		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL << 56;
+		BoardSet attacked = boardState.whiteAttacks.all;
+		BoardSet pieces = boardState.black.all | boardState.white.all;
+		if (canBlackCasleKingside(boardState.caslingStates.currentState())) {
+			if (((attacked | pieces) & casleKingsideMask) == 0) {
+				moves[start + numberOfMoves] = { 074, 076, 0 };
+				numberOfMoves++;
+			}
+		}
+		if (canBlackCasleQueenside(boardState.caslingStates.currentState())) {
+			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
+				moves[start + numberOfMoves] = { 074, 072, 0 };
+				numberOfMoves++;
+			}
+		}
+		return numberOfMoves;
+	}
+	else {
+		size_t numberOfMoves = 0;
+		constexpr BoardSet casleKingsideMask = 0b01100000ULL;
+		constexpr BoardSet casleQueensideMask = 0b00001100ULL;
+		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL;
+		BoardSet attacked = boardState.blackAttacks.all;
+		BoardSet pieces = boardState.white.all | boardState.black.all;
+		if (canWhiteCasleKingside(boardState.caslingStates.currentState())) {
+			if (((attacked | pieces) & casleKingsideMask) == 0) {
+				moves[start + numberOfMoves] = { 004, 006, 0 };
+				numberOfMoves++;
+			}
+		}
+		if (canWhiteCasleQueenside(boardState.caslingStates.currentState())) {
+			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
+				moves[start + numberOfMoves] = { 004, 002, 0 };
+				numberOfMoves++;
+			}
+		}
+		return numberOfMoves;
+	}
+}
 
 template <bool After_King>
 __forceinline
@@ -764,7 +886,8 @@ size_t GenerateBlockingMoves(size_t start) {
 	}
 	BoardSet blockLocations = checkData.checkRay;
 	BoardSet checkSource = checkData.checkSource;
-	if ((blockLocations | checkSource) == 0) return 0;
+	blockLocations = blockLocations | checkSource;
+	if (blockLocations == 0) return 0;
 
 	pieceSets.pawn &= ~pinnedSet;
 	pieceSets.knight &= ~pinnedSet;
@@ -842,6 +965,7 @@ size_t GenerateMoves() {
 	size_t movesSize = 0;
 	movesSize += generateKingMoves<Black>(movesSize);
 	if (boardState.checkData.checkCount == 0) {
+		movesSize += generateCaslingMoves<Black>(movesSize);
 		movesSize += generatePawnMovesAndAttacks<Black>(movesSize);
 		movesSize += generateKnightMoves<Black>(movesSize);
 		movesSize += generateBishopLikeMoves<Black>(movesSize);

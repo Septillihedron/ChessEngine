@@ -3,6 +3,7 @@
 #include <intrin.h>
 #include <stdexcept>
 #include <string>
+#include <iostream>
 #include <sstream>
 
 #define BoardSet uint64_t
@@ -13,6 +14,7 @@
 #define PieceType u8
 #define File u8
 #define Rank u8
+#define FileAndCount u8
 
 #include "BitOps.h"
 
@@ -137,7 +139,11 @@ typedef struct CaslingStateHistory {
 	ChangeCaslingMask push(CaslingState newState);
 	void pop();
 
-	bool operator==(const CaslingStateHistory &) const = default;
+	inline bool operator==(CaslingStateHistory &other) {
+		if (stackPointer != other.stackPointer) return false;
+		for (u8 i = 0; i < stackPointer; i++) if (history[i] != other.history[i]) return false;
+		return true;
+	}
 } CaslingStateHistory;
 
 typedef struct PieceSets {
@@ -210,12 +216,44 @@ typedef struct CheckData {
 		return true;
 	}
 } CheckData;
+typedef struct EnPassantHistory {
+	File history[33];
+	u8 stackPointer;
+
+	File current();
+	u8 push(File newFile);
+	void pop();
+
+	inline bool operator==(EnPassantHistory &other) {
+		if (stackPointer != other.stackPointer) return false;
+		for (u8 i = 0; i <= stackPointer; i++) {
+			if (history[i] != other.history[i]) return false;
+		}
+		return true;
+	}
+} EnPassantHistory;
+typedef struct CaptureStack {
+	PieceType stack[33];
+	u8 stackPointer = (u8) -1;
+
+	void push(PieceType type);
+	PieceType pop();
+	inline bool operator==(CaptureStack &other) {
+		if (stackPointer != other.stackPointer) return false;
+		for (u8 i = 0; i <= stackPointer; i++) {
+			if (stack[i] != other.stack[i]) return false;
+		}
+		return true;
+	}
+} CaptureStack;
 
 typedef struct BoardState {
 
-	Location enPassantTarget;
+	EnPassantHistory enPassantTargets;
 
 	CaslingStateHistory caslingStates;
+
+	CaptureStack captureStack;
 
 	PieceSets white;
 	PieceSets black;
@@ -267,7 +305,7 @@ typedef struct BoardState {
 	CheckData checkData;
 
 	inline bool operator==(BoardState &other) {
-		if (enPassantTarget != other.enPassantTarget) return false;
+		if (enPassantTargets != other.enPassantTargets) return false;
 		if (caslingStates != caslingStates) return false;
 		if (white != white) return false;
 		if (black != black) return false;
@@ -297,6 +335,7 @@ typedef struct BoardState {
 	std::string GetStringRepresentation();
 
 } BoardState;
+bool CreateFromFEN(std::string fen, BoardState &boardState);
 
 
 extern BoardState boardState;

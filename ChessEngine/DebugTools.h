@@ -1,23 +1,22 @@
 #pragma once
 
-#define DEBUG
+//#define DEBUG
 
 #include <iostream>
 #include <sstream>
 #include <chrono>
 #include "MoveGen.h"
 
-u8 max_depth = 6;
+u8 max_depth = 5;
 
 template <bool Black>
 size_t perft(u8 depth) {
-    if (depth == 0) {
-        return 1;
-    }
     size_t movesLength = GenerateMoves<Black>();
+    if (depth == 0) {
+        return movesLength;
+    }
     size_t count = 0;
     for (int i = 0; i<movesLength; i++) {
-        if (uncoloredType(boardState.squares[moves[i].to]) == piece_type::KING) continue;
         moves[i].Make<Black>();
         moves.push(movesLength);
         count += perft<!Black>(depth - 1);
@@ -183,7 +182,7 @@ bool explorePerft(u8 depth) {
             std::cout << std::format("{:3d}", i) << ": " << MoveToString(moves[i]) << ": ";
             moves[i].Make<Black>();
             moves.push(movesLength);
-            size_t current = perftDebug<!Black>(depth - 1, max_depth);
+            size_t current = perft<!Black>(depth - 1);
             count += current;
             std::cout << (long) current << std::endl;
             moves.pop(movesLength);
