@@ -2,6 +2,7 @@
 #include <cstring>
 #include <stdexcept>
 #include "BoardRepresentation.h"
+#include "MoveGen.h"
 
 BoardState CreateBoardState() {
 
@@ -126,6 +127,8 @@ bool CreateFromFEN(std::string fen, BoardState &boardState) {
 	}
 	boardState.enPassantTargets = enPassantTargets;
 	boardState.caslingStates = caslingStates;
+	UpdateAttackAndDefendSets<false>();
+	UpdateAttackAndDefendSets<true>();
 	return isBlackStart;
 }
 

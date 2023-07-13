@@ -1,0 +1,59 @@
+Hello world!
+SF interface initiating
+SF interface initiated
+ME interface initiating
+ME interface initiated
+Interfaces initiated
+b2b3 diff me null
+c3a2 diff me null
+c3a4
+  a8a7 diff me null
+  a6a5 diff me null
+  c5a7 diff me null
+  a8e8 diff me null
+  f8b8 diff me null
+  c5a3 diff me null
+  d6d5 diff me null
+  g4c8 diff me null
+  c5e3 diff me null
+  c3a4 diff sf null
+  c5f2 diff me null
+  g4h5 diff me null
+  g4h3 diff me null
+  h2h1 diff sf null
+  c6b8 diff me null
+  a8d8 diff me null
+  c6b4 diff me null
+  f8e8 diff me null
+  f6e8 diff me null
+  c5d4 diff me null
+  a8c8 diff me null
+  b7b6 diff me null
+  c6a7 diff me null
+  h2g1 diff sf null
+  b7b5 diff me null
+  h2g3 diff sf null
+  f8d8 diff me null
+  c6a5 diff me null
+  e7e8 diff me null
+  f6d7 diff me null
+  e7e6 diff me null
+  f6d5 diff me null
+  f6e4 diff me null
+  g4f5 diff me null
+  g4f3 diff me null
+  a8b8 diff me null
+  f8c8 diff me null
+  e7d8 diff me null
+  c5b4 diff me null
+  c6d8 diff me null
+  c5b6 diff me null
+  e7d7 diff me null
+  h7h5 diff me null
+  h7h6 diff me null
+  c6d4 diff me null
+  g8h8 diff me null
+  g4d7 diff me null
+  g7g6 diff me null
+  g4e6 diff me null
+  f6h5 diff me null

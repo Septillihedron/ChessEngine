@@ -69,9 +69,13 @@ typedef struct Move {
 		u8 toFile = fileOf(to);
 		u8 toRank = rankOf(to);
 
-		char promotionPiece = PromotionPiece(metadata & 7);
-
-		return std::format("{:c}{:d}{:c}{:d}{:c}", fromFile + 'a', fromRank + 1, toFile + 'a', toRank + 1, promotionPiece);
+		if ((metadata & 7) == 0) {
+			return std::format("{:c}{:c}{:c}{:c}", fromFile + 'a', fromRank + '1', toFile + 'a', toRank + '1');
+		}
+		else {
+			char promotionPiece = PromotionPiece(metadata & 7);
+			return std::format("{:c}{:c}{:c}{:c}{:c}", fromFile + 'a', fromRank + '1', toFile + 'a', toRank + '1', promotionPiece);
+		}
 	}
 
 	inline bool operator==(Move &other) {
@@ -390,10 +394,10 @@ void CheckUncheckedChecks() {
 	/* pawn checks */ {
 		BoardSet checkingPawns;
 		if constexpr (Black) {
-			checkingPawns = ((king >> 7) | (king >> 9)) & pawns;
+			checkingPawns = (((king & ~HFile) >> 7) | ((king & ~AFile) >> 9)) & pawns;
 		}
 		else {
-			checkingPawns = ((king << 7) | (king << 9)) & pawns;
+			checkingPawns = (((king & ~AFile) << 7) | ((king & ~HFile) << 9)) & pawns;
 		}
 		if (checkingPawns != 0) {
 			boardState.checkData.checkCount++;
@@ -410,7 +414,7 @@ void Move::Make() {
 	boardState.SetPiece<true>(from, piece_type::NONE);
 
 	PieceType capturedPiece = boardState.squares[to];
-	if (pieceType == piece_type::PAWN && boardState.enPassantTargets.current() == fileOf(to) && isOccupied(enPassantLocations<Black>, from)) {
+	if (uncoloredType(pieceType) == piece_type::PAWN && boardState.enPassantTargets.current() == fileOf(to) && isOccupied(enPassantLocations<Black>, from)) {
 		metadata |= EnPassantCapture << 4;
 		boardState.SetPiece<true>(to - forward<Black>, piece_type::NONE);
 	}
@@ -672,7 +676,7 @@ constexpr BoardSet specialMoveLocations() {
 	if constexpr (In_Promotion_Locations) {
 		return promotionMoveLocations<Black>;
 	}
-	return allOccupiedSet;
+	return allOccupiedSet & ~promotionMoveLocations<Black>;
 }
 
 template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
@@ -930,7 +934,24 @@ u8 GenerateBlockingMoves(u8 start) {
 
 	/* pawn captures */ {
 		Location checkLocation = firstOccupied(checkSource);
+
+		File enPassantFile = boardState.enPassantTargets.current();
+		if (enPassantFile != NullLocation) {
+			BoardSet enemyPawns = Black? boardState.white.pawn : boardState.black.pawn;
+			bool isPawnCheck = (enemyPawns & checkSource) != 0;
+			if (isPawnCheck) {
+				BoardSet enPassantFileSet = AFile << enPassantFile;
+				BoardSet enPassantingFiles = ((enPassantFileSet & ~HFile) << 1) | ((enPassantFileSet & ~AFile) >> 1);
+				BoardSet pawnCaptureLocations = pieceSets.pawn & enPassantLocations<Black> & enPassantingFiles;
+				while (pawnCaptureLocations != 0) {
+					Location location = extractFirstOccupied(&pawnCaptureLocations);
+					moves[start + numberOfMoves] = { location, (Location) (checkLocation + forward<Black>), piece_type::NONE };
+					numberOfMoves++;
+				}
+			}
+		}
 		BoardSet pawnCaptureLocations;
+
 		if constexpr (Black) {
 			pawnCaptureLocations = (((checkSource & ~AFile) << 7) | ((checkSource & ~HFile) << 9)) & pieceSets.pawn;
 		}
@@ -950,13 +971,14 @@ u8 GenerateBlockingMoves(u8 start) {
 		blockLocations &= ~currentBlockSet;
 
 		/* pawn blocks */ {
+			BoardSet allPieces = boardState.black.all | boardState.white.all;
 			BoardSet onlyBlockLocations = currentBlockSet & ~checkSource;
 			BoardSet pawnBlockLocations;
 			if constexpr (Black) {
-				pawnBlockLocations = ((onlyBlockLocations << 8) | ((onlyBlockLocations << 16) & twoMoveLocations<Black>)) & pieceSets.pawn;
+				pawnBlockLocations = ((onlyBlockLocations << 8) | ((onlyBlockLocations << 16) & twoMoveLocations<Black> & ~(allPieces << 8))) & pieceSets.pawn;
 			}
 			else {
-				pawnBlockLocations = ((onlyBlockLocations >> 8) | ((onlyBlockLocations >> 16) & twoMoveLocations<Black>)) & pieceSets.pawn;
+				pawnBlockLocations = ((onlyBlockLocations >> 8) | ((onlyBlockLocations >> 16) & twoMoveLocations<Black> & ~(allPieces >> 8))) & pieceSets.pawn;
 			}
 			while (pawnBlockLocations != 0) {
 				numberOfMoves += generatePawnMovesWithPossiblePromotion(start + numberOfMoves, extractFirstOccupied(&pawnBlockLocations), currentBlockLocation);

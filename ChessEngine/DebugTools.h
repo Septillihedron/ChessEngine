@@ -12,10 +12,10 @@ u8 max_depth = 5;
 
 template <bool Black>
 size_t perft(u8 depth) {
-    size_t movesLength = GenerateMoves<Black>();
     if (depth == 0) {
-        return movesLength;
+        return 1;
     }
+    u16 movesLength = GenerateMoves<Black>();
     size_t count = 0;
     for (int i = 0; i<movesLength; i++) {
         moves[i].Make<Black>();
@@ -44,19 +44,7 @@ inline char PromotionPiece(PieceType type) {
     }
 }
 
-inline std::string MoveToString(Move move) {
-    Location from = move.from;
-    Location to = move.to;
-    u8 fromFile = fileOf(from);
-    u8 fromRank = rankOf(from);
-    u8 toFile = fileOf(to);
-    u8 toRank = rankOf(to);
-
-    char promotionPiece = PromotionPiece(move.metadata & 7);
-
-    return std::format("{:c}{:d}{:c}{:d}{:c}", fromFile + 'a', fromRank + 1, toFile + 'a', toRank + 1, promotionPiece);
-}
-inline Move StringToMove(std::string moveStr) {
+inline constexpr Move StringToMove(std::string moveStr) {
     Move moveMove;
     if (moveStr.size() != 4 && moveStr.size() != 5) throw std::invalid_argument("Size of string is not 4 or 5");
     moveMove.from = (moveStr[0] - 'a') + 8*(moveStr[1] - '1');
@@ -100,7 +88,7 @@ inline std::string PlayedMovesToString() {
     allMoves += "\n";
     for (int i = 0; i<max_depth; i++) {
         Move move = movesPlayed[i];
-        allMoves += MoveToString(move);
+        allMoves += move.ToString();
     }
     return allMoves;
 }
@@ -113,7 +101,7 @@ inline bool MovesArrayEq(Move *a, Move *b, int n) {
 }
 
 template <bool Black>
-size_t perftDebug(u8 depth, u8 max_depth) {
+size_t perftDebug(u8 depth) {
     if (depth == 0) {
         return 1;
     }
@@ -161,7 +149,7 @@ bool exploreMove() {
     u8 movesLength = GenerateMoves<Black>();
     std::cout << movesLength << std::endl;
     for (int i = 0; i<movesLength; i++) {
-        std::cout << std::format("{:3d}", i) << ": " << MoveToString(moves[i]) << " " << MoveInitiatorString(moves[i]) << std::endl;
+        std::cout << std::format("{:3d}", i) << ": " << moves[i].ToString() << " " << MoveInitiatorString(moves[i]) << std::endl;
     }
     int index = 0;
     std::cout << "Explore index: ";
@@ -170,7 +158,7 @@ bool exploreMove() {
     if (index == -1) return true;
     if (index == -2) return false;
 
-    std::cout << "Chosen index " << index << ": " << MoveToString(moves[index]) << " " << MoveInitiatorString(moves[index]) << std::endl;
+    std::cout << "Chosen index " << index << ": " << moves[index].ToString() << " " << MoveInitiatorString(moves[index]) << std::endl;
     moves[index].Make<Black>();
     moves.push(movesLength);
     bool reset = exploreMove<!Black>();
@@ -196,32 +184,32 @@ bool explorePerft(u8 depth) {
     while (depth <= max_depth) {
         u8 movesLength = GenerateMoves<Black>();
         size_t count = 0;
-        std::cout << movesLength << std::endl;
+        //std::cout << movesLength << std::endl;
         for (int i = 0; i<movesLength; i++) {
-            std::cout << std::format("{:3d}", i) << ": " << MoveToString(moves[i]) << ": ";
+            std::cout << std::format("{:3d}", i) << ": " << moves[i].ToString() << ": ";
             moves[i].Make<Black>();
             moves.push(movesLength);
-            size_t current = perftDebug<!Black>(depth - 1, max_depth);
+            size_t current = perft<!Black>(depth - 1);
             count += current;
-            std::cout << (long) current << std::endl;
+            std::cout << current << std::endl;
             moves.pop(movesLength);
             moves[i].Unmake<Black>();
         }
         std::cout << std::endl << "Nodes searched: " << count << std::endl;
         int index = 0;
-        std::cout << "Explore index: ";
+        //std::cout << "Explore index: ";
         std::cin >> index;
 
         if (index == -1) continue;
         if (index == -2) return false;
         if (index == -3) return true;
 
-        std::cout << "Chosen index " << index << ": " << MoveToString(moves[index]) << std::endl;
+        //std::cout << "Chosen index " << index << ": " << moves[index].ToString() << std::endl;
         moves[index].Make<Black>();
         moves.push(movesLength);
         bool exit = explorePerft<!Black>(depth - 1);
         moves.pop(movesLength);
-        moves[index].Unmake<Black>();
+        moves[index].Unmake<Black>(); 
         if (exit) break;
     }
 

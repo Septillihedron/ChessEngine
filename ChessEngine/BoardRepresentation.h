@@ -32,7 +32,8 @@ constexpr BoardSet fourthRank = 0x00000000FF000000ULL;
 constexpr BoardSet fifthRank = 0x000000FF00000000ULL;
 constexpr BoardSet seventhRank = 0x00FF000000000000ULL;
 
-constexpr BoardSet oneMoveLocations = ~(secondRank | seventhRank); // and no promotion
+// and no promotion
+constexpr BoardSet oneMoveLocations = ~(secondRank | seventhRank);
 
 template <bool Black> constexpr BoardSet twoMoveLocations = (Black)? seventhRank : secondRank;
 template <bool Black> constexpr BoardSet promotionMoveLocations = (Black)? secondRank : seventhRank;

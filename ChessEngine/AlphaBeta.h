@@ -27,7 +27,7 @@ Move Search() {
 	AlphaBetaRoot<Black>(1, &principleVariationNext);
 	principleVariation = principleVariationNext;
 	bestMove = principleVariation.moves[0];
-	for (u8 i = 2; i < 10; i++) {
+	for (u8 i = 2; i < 8; i++) {
 		AlphaBetaRoot<Black>(i, &principleVariationNext);
 		if (searchCanceled) {
 			principleVariation.cmove -= 2;
