@@ -8,7 +8,7 @@
 #include <format>
 #include "MoveGen.h"
 
-u8 max_depth = 5;
+u8 max_depth = 3;
 
 template <bool Black>
 size_t perft(u8 depth) {
@@ -69,6 +69,36 @@ inline constexpr Move StringToMove(std::string moveStr) {
         }
     }
     return moveMove;
+}
+
+template <class T, int N>
+struct ConstexprArray {
+    int size;
+    T arr[N];
+};
+
+template <int Size = 100>
+inline constexpr ConstexprArray<Move, Size> StringToMoves(std::string movesStr) {
+    int index = 0;
+    ConstexprArray<Move, Size> moves = {};
+    std::string currMoveStr = "";
+    for (int i = 0; i<movesStr.size(); i++) {
+        if (movesStr[i] == ' ') {
+            moves.arr[index] = StringToMove(currMoveStr);
+            index++;
+            currMoveStr = "";
+        }
+        else {
+            currMoveStr += movesStr[i];
+        }
+    }
+    if (currMoveStr != "") {
+        moves.arr[index] = StringToMove(currMoveStr);
+        index++;
+        currMoveStr = "";
+    }
+    moves.size = index;
+    return moves;
 }
 
 #ifdef DEBUG

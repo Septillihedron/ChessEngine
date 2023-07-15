@@ -1,0 +1,14 @@
+{
+  "name": "sepbot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.mjs",
+  "scripts": {
+    "run": "tsc && node index.mjs"
+  },
+  "author": "Sepdron",
+  "license": "",
+  "devDependencies": {
+    "typescript": "^4.9.3"
+  }
+}

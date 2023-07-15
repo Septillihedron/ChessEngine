@@ -78,6 +78,21 @@ typedef struct Move {
 		}
 	}
 
+#ifdef DEBUG
+	inline Move &operator=(const Move &move) {
+		from = move.from;
+		to = move.to;
+		metadata = move.metadata;
+
+		if (to == firstOccupied(boardState.white.king) || to == firstOccupied(boardState.black.king)) {
+			int a = 0;
+			a ^= a;
+		}
+
+		return *this;
+	}
+#endif
+
 	inline bool operator==(Move &other) {
 		if (from != other.from) return false;
 		if (to != other.to) return false;
@@ -445,9 +460,6 @@ void Move::Make() {
 	MakeMoveMoveCaslingRook<Black, false>();
 
 	MakeMoveChangeCaslingRights(pieceType);
-
-	UpdateAttackAndDefendSets<Black>();
-	UpdateAttackAndDefendSets<!Black>();
 }
 template <bool Black>
 void Move::Unmake() {
@@ -1010,6 +1022,8 @@ u8 GenerateMoves() {
 	if (moves.start + 350 > moves.capacity) {
 		moves.resizeAdd();
 	}
+	UpdateAttackAndDefendSets<Black>();
+	UpdateAttackAndDefendSets<!Black>();
 	GeneratePinnedSets<Black>();
 	CheckUncheckedChecks<Black>();
 

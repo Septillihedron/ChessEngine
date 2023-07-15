@@ -27,7 +27,7 @@ Move Search() {
 	AlphaBetaRoot<Black>(1, &principleVariationNext);
 	principleVariation = principleVariationNext;
 	bestMove = principleVariation.moves[0];
-	for (u8 i = 2; i < 8; i++) {
+	for (u8 i = 2; i < 6; i++) {
 		AlphaBetaRoot<Black>(i, &principleVariationNext);
 		if (searchCanceled) {
 			principleVariation.cmove -= 2;
@@ -93,7 +93,7 @@ template <bool Black>
 void AlphaBetaRoot(u8 depth, Variation *principleVariation) {
 	PositionValue alpha = MIN_VALUE, beta = MAX_VALUE;
 	u8 movesSize = GenerateMoves<Black>();
-	OrderMoves<Black>(movesSize, depth);
+	//OrderMoves<Black>(movesSize, depth);
 	if (movesSize == 0) {
 		principleVariation->moves[0] = NullMove;
 		return;
@@ -126,7 +126,7 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 	}
 	Variation variation;
 	u8 movesSize = GenerateMoves<Black>();
-	OrderMoves<Black>(movesSize, depth);
+	//OrderMoves<Black>(movesSize, depth);
 	if (movesSize == 0) {
 		if (boardState.checkData.checkCount > 0) return Black? MAX_VALUE : MIN_VALUE;
 		else return DRAW_VALUE;

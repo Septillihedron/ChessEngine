@@ -1,8 +1,8 @@
 // ChessEngine.cpp : This file contains the 'main' function. Program execution begins and ends there.
 
 #include <thread>
-#include "AlphaBeta.h"
 #include "DebugTools.h"
+#include "AlphaBeta.h"
 
 void play() {
     bool isBlack = false;
@@ -58,19 +58,19 @@ int main(int argc, char *argv[])
 {
     std::cout << "Hello World!\n";
 #ifdef DEBUG
-    bool isBlacksTurn = CreateFromFEN("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10", boardState);
+    bool isBlacksTurn = false; // CreateFromFEN("1n1q1rk1/n4ppp/1b6/2P2Q2/8/4P3/PP3PPP/R1B1K1NR b KQ - 0 16", boardState);
     //bool isBlacksTurn = false;
-    //Move moves[] = {
-    //    StringToMove("h2h3"),
-    //    StringToMove("a6a5"),
-    //    StringToMove("g1h2"),
-    //    StringToMove("a5a4"),
-    //};
-    //for (Move move : moves) {
-    //    move.Make(isBlacksTurn);
-    //    max_depth--;
-    //    isBlacksTurn = !isBlacksTurn;
-    //}
+    auto moves = StringToMoves("b1c3 c7c5 c3b5 d8a5 b5c7 a5c7 e2e3 d7d5 f1b5 c8d7 b5d7 b8d7 d1g4 e8c8 g4d7 d8d7 c2c3 e7e6 g2g3 g8f6 a1b1 f6e4 e1d1 e4f2 d1e2 f2h1 g1f3 c7a5 f3g1 a5b5");
+    for (int i = 0; i<moves.size; i++) {
+        Move move = moves.arr[i];
+        std::cout << move.ToString() << std::endl;
+        move.Make(isBlacksTurn);
+        //max_depth--;
+        isBlacksTurn = !isBlacksTurn;
+        //std::cout << boardState.GetStringRepresentation();
+        //std::cin.ignore();
+    }
+    Search(isBlacksTurn);
     //std::cout << boardState.GetStringRepresentation();
     if (isBlacksTurn) {
         std::cout << explorePerft<true>(max_depth) << std::endl;
@@ -91,10 +91,6 @@ int main(int argc, char *argv[])
     //    std::cout << i << ": " << ms_nano.count()/1e6 << " ms" << std::endl;
     //}
     //std::cout << timeTotal/1e6/10 << " ms" << std::endl;
-    std::cout << "Updating attack and defend sets... ";
-    UpdateAttackAndDefendSets<false>();
-    UpdateAttackAndDefendSets<true>();
-    std::cout << "Done!" << std::endl;
     play();
 
 #endif // DEBUG
