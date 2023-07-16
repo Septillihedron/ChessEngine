@@ -78,20 +78,25 @@ typedef struct Move {
 		}
 	}
 
-#ifdef DEBUG
-	inline Move &operator=(const Move &move) {
-		from = move.from;
-		to = move.to;
-		metadata = move.metadata;
+	//template <bool Undo = false>
+	//inline void checkValid() {
+		//if (
+		//	(!Undo && (to == firstOccupied(boardState.white.king) || to == firstOccupied(boardState.black.king))) ||
+		//	from > 63 || to > 63
+		//) {
+		//	throw "AAAAAAAAAA";
+		//}
+	//}
 
-		if (to == firstOccupied(boardState.white.king) || to == firstOccupied(boardState.black.king)) {
-			int a = 0;
-			a ^= a;
-		}
+	//inline Move &operator=(const Move &move) {
+	//	from = move.from;
+	//	to = move.to;
+	//	metadata = move.metadata;
 
-		return *this;
-	}
-#endif
+	//	checkValid();
+
+	//	return *this;
+	//}
 
 	inline bool operator==(Move &other) {
 		if (from != other.from) return false;
@@ -104,18 +109,24 @@ typedef struct Move {
 typedef struct MovesArray {
 	u16 capacity;
 	u16 start;
+	u16 sizes[20];
+	u8 sizesIndex;
 	Move *moves;
 
 	MovesArray();
 
 	__forceinline void push(u16 size) {
+		sizes[sizesIndex] = size;
+		sizesIndex++;
 		start += size;
 	}
-	__forceinline void pop(u16 size) {
-		start -= size;
+	__forceinline void pop() {
+		sizesIndex--;
+		start -= sizes[sizesIndex];
 	}
 	__forceinline void resizeAdd() {
 		capacity += 350;
+		std::cout << "Resized to: " << capacity << std::endl;
 		moves = (Move *) realloc(moves, capacity * sizeof Move);
 	}
 	__forceinline void resizeSub() {
@@ -367,20 +378,20 @@ void GeneratePinnedSets() {
 
 	boardState.checkData.checkCount = 0;
 
-	pinnedSets.named.negativeDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & beforeKing);
-	pinnedSets.named.negativeDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & afterKing);
-	pinnedSets.named.positiveDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & beforeKing);
-	pinnedSets.named.positiveDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & afterKing);
+	pinnedSets.negativeDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & beforeKing);
+	pinnedSets.negativeDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[0] & afterKing);
+	pinnedSets.positiveDiagonal = ScanPinRay<false>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & beforeKing);
+	pinnedSets.positiveDiagonal |= ScanPinRay<true>(enemyBishopLike, enemyNonBishopLike, friendlyPieces, pinRay[2] & afterKing);
 
-	pinnedSets.named.vertical = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & beforeKing);
-	pinnedSets.named.vertical |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & afterKing);
-	pinnedSets.named.horizontal = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & beforeKing);
-	pinnedSets.named.horizontal |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & afterKing);
+	pinnedSets.vertical = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & beforeKing);
+	pinnedSets.vertical |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[1] & afterKing);
+	pinnedSets.horizontal = ScanPinRay<false>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & beforeKing);
+	pinnedSets.horizontal |= ScanPinRay<true>(enemyRookLike, enemyNonRookLike, friendlyPieces, pinRay[3] & afterKing);
 
-	pinnedSets.named.diagonal = pinnedSets.named.negativeDiagonal | pinnedSets.named.positiveDiagonal;
-	pinnedSets.named.lateral = pinnedSets.named.vertical | pinnedSets.named.horizontal;
+	pinnedSets.diagonal = pinnedSets.negativeDiagonal | pinnedSets.positiveDiagonal;
+	pinnedSets.lateral = pinnedSets.vertical | pinnedSets.horizontal;
 
-	pinnedSets.named.all = pinnedSets.named.diagonal | pinnedSets.named.lateral;
+	pinnedSets.all = pinnedSets.diagonal | pinnedSets.lateral;
 }
 template <bool Black>
 void CheckUncheckedChecks() {
@@ -463,7 +474,6 @@ void Move::Make() {
 }
 template <bool Black>
 void Move::Unmake() {
-
 	PieceType pieceType = boardState.squares[to];
 	PieceType pieceColor = pieceType & 0b1000;
 
@@ -536,12 +546,12 @@ u8 generateKnightMoves(u8 start) {
 	if constexpr (Black) {
 		knightSet = boardState.black.knight;
 		friendlyPieces = boardState.black.all;
-		pinnedSet = boardState.blackPinnedSets.named.all;
+		pinnedSet = boardState.blackPinnedSets.all;
 	}
 	else {
 		knightSet = boardState.white.knight;
 		friendlyPieces = boardState.white.all;
-		pinnedSet = boardState.whitePinnedSets.named.all;
+		pinnedSet = boardState.whitePinnedSets.all;
 	}
 	u8 numberOfMoves = 0;
 	knightSet &= ~pinnedSet;
@@ -638,13 +648,13 @@ bool isEnPassantPinned(Location pawnLocation) {
 
 template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations, File Direction>
 u8 generatePawnAttacks(u8 start, BoardSet pawnSet, BoardSet enemyPieces) {
-	NamedPinnedSets *pinnedSets;
+	PinnedSets *pinnedSets;
 
 	if constexpr (Black) {
-		pinnedSets = &boardState.blackPinnedSets.named;
+		pinnedSets = &boardState.blackPinnedSets;
 	}
 	else {
-		pinnedSets = &boardState.whitePinnedSets.named;
+		pinnedSets = &boardState.whitePinnedSets;
 	}
 	if constexpr (Direction == (File) 1) {
 		if constexpr (Black) pawnSet &= ~pinnedSets->positiveDiagonal;
@@ -708,18 +718,18 @@ u8 generatePawnMovesAndAttacks(u8 start) {
 	BoardSet enemyPieces;
 	BoardSet allPieces;
 	BoardSet pawnSet;
-	NamedPinnedSets *pinnedSets;
+	PinnedSets *pinnedSets;
 	if constexpr (Black) {
 		pawnSet = boardState.black.pawn;
 		friendlyPieces = boardState.black.all;
 		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
+		pinnedSets = &boardState.blackPinnedSets;
 	}
 	else {
 		pawnSet = boardState.white.pawn;
 		friendlyPieces = boardState.white.all;
 		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
+		pinnedSets = &boardState.whitePinnedSets;
 	}
 	allPieces = friendlyPieces | enemyPieces;
 	pawnSet &= ~pinnedSets->horizontal;
@@ -757,6 +767,7 @@ bool IsOnEdge(Location location) {
 
 template <Location File_Direction, Location Rank_Direction>
 u8 AddAllMovesInDirection(u8 start, Location location, BoardSet enemyPieces, BoardSet friendlyPieces) {
+	#pragma warning(suppress: 4310)
 	constexpr Location direction = (Location) (8*Rank_Direction + File_Direction);
 
 	Location target = location;
@@ -780,18 +791,18 @@ u8 generateRookLikeMoves(u8 start) {
 	BoardSet friendlyPieces;
 	BoardSet enemyPieces;
 	BoardSet rookSet;
-	NamedPinnedSets *pinnedSets;
+	PinnedSets *pinnedSets;
 	if constexpr (Black) {
 		rookSet = boardState.black.rook | boardState.black.queen;
 		friendlyPieces = boardState.black.all;
 		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
+		pinnedSets = &boardState.blackPinnedSets;
 	}
 	else {
 		rookSet = boardState.white.rook | boardState.white.queen;
 		friendlyPieces = boardState.white.all;
 		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
+		pinnedSets = &boardState.whitePinnedSets;
 	}
 	rookSet &= ~pinnedSets->diagonal;
 	u8 numberOfMoves = 0;
@@ -813,18 +824,18 @@ u8 generateBishopLikeMoves(u8 start) {
 	BoardSet friendlyPieces;
 	BoardSet enemyPieces;
 	BoardSet bishopSet;
-	NamedPinnedSets *pinnedSets;
+	PinnedSets *pinnedSets;
 	if constexpr (Black) {
 		bishopSet = boardState.black.bishop | boardState.black.queen;
 		friendlyPieces = boardState.black.all;
 		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets.named;
+		pinnedSets = &boardState.blackPinnedSets;
 	}
 	else {
 		bishopSet = boardState.white.bishop | boardState.white.queen;
 		friendlyPieces = boardState.white.all;
 		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets.named;
+		pinnedSets = &boardState.whitePinnedSets;
 	}
 	bishopSet &= ~pinnedSets->lateral;
 	u8 numberOfMoves = 0;
@@ -925,11 +936,11 @@ u8 GenerateBlockingMoves(u8 start) {
 	BoardSet pinnedSet;
 	if constexpr (Black) {
 		pieceSets = boardState.black;
-		pinnedSet = boardState.blackPinnedSets.named.all;
+		pinnedSet = boardState.blackPinnedSets.all;
 	}
 	else {
 		pieceSets = boardState.white;
-		pinnedSet = boardState.whitePinnedSets.named.all;
+		pinnedSet = boardState.whitePinnedSets.all;
 	}
 	BoardSet blockLocations = checkData.checkRay;
 	BoardSet checkSource = checkData.checkSource;

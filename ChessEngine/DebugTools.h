@@ -192,7 +192,7 @@ bool exploreMove() {
     moves[index].Make<Black>();
     moves.push(movesLength);
     bool reset = exploreMove<!Black>();
-    moves.pop(movesLength);
+    moves.pop();
     moves[index].Unmake<Black>();
 
     std::cout << MoveInitiatorString(moves[index]) << std::endl;

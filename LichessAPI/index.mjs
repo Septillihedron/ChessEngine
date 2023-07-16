@@ -45,7 +45,7 @@ async function startEngine(event) {
 
 	let engine = new EngineAPI(game.color[0]);
 
-	await delay(1000);
+	await delay(10000);
 
 	let url = `${endPoint}/bot/game/stream/${gameId}`;
 	let moveStream = new NdjsonStream(await fetch(url, { headers }));
@@ -54,6 +54,7 @@ async function startEngine(event) {
 	
 	while (true) {
 		let moveEvent = await moveStream.read();
+		if (moveEvent == null) return;
 		let bestMove;
 		if (moveEvent.type == "gameState") {
 			console.log(moveEvent.moves);

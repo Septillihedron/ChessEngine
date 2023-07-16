@@ -117,11 +117,11 @@ bool canBlackCasleQueenside(CaslingState state) {
 
 __forceinline
 File fileOf(Location loc) {
-	return loc & 7;
+	return loc & (u8) 7;
 }
 __forceinline
 Rank rankOf(Location loc) {
-	return loc >> 3;
+	return loc >> (u8) 3;
 }
 
 __forceinline
@@ -130,7 +130,7 @@ bool isColorBlack(PieceType type) {
 }
 __forceinline
 PieceType uncoloredType(PieceType type) {
-	return type & 7;
+	return type & (u8) 7;
 }
 
 typedef struct CaslingStateHistory {
@@ -179,7 +179,7 @@ typedef struct PieceSets {
 		return difference.str();
 	}
 } PieceSets;
-typedef struct NamedPinnedSets {
+typedef struct PinnedSets {
 	BoardSet negativeDiagonal;
 	BoardSet vertical;
 	BoardSet positiveDiagonal;
@@ -188,23 +188,15 @@ typedef struct NamedPinnedSets {
 	BoardSet lateral;
 	BoardSet all;
 
-	inline bool operator==(NamedPinnedSets &other) {
-		if (negativeDiagonal != negativeDiagonal) return false;
-		if (vertical != vertical) return false;
-		if (positiveDiagonal != positiveDiagonal) return false;
-		if (horizontal != horizontal) return false;
-		if (diagonal != diagonal) return false;
-		if (lateral != lateral) return false;
-		if (all != all) return false;
-		return true;
-	}
-} NamedPinnedSets;
-typedef union PinnedSets {
-	BoardSet indexed[7];
-	struct NamedPinnedSets named;
-
 	inline bool operator==(PinnedSets &other) {
-		return named == other.named;
+		if (negativeDiagonal != other.negativeDiagonal) return false;
+		if (vertical != other.vertical) return false;
+		if (positiveDiagonal != other.positiveDiagonal) return false;
+		if (horizontal != other.horizontal) return false;
+		if (diagonal != other.diagonal) return false;
+		if (lateral != other.lateral) return false;
+		if (all != other.all) return false;
+		return true;
 	}
 } PinnedSets;
 typedef struct CheckData {
@@ -213,8 +205,8 @@ typedef struct CheckData {
 	BoardSet checkSource;
 
 	inline bool operator==(CheckData &other) {
-		if (checkCount != checkCount) return false;
-		if (checkRay != checkRay) return false;
+		if (checkCount != other.checkCount) return false;
+		if (checkRay != other.checkRay) return false;
 		return true;
 	}
 } CheckData;
@@ -249,14 +241,11 @@ typedef struct CaptureStack {
 	}
 } CaptureStack;
 
-
 typedef struct BoardState {
 
 	EnPassantHistory enPassantTargets;
 
 	CaslingStateHistory caslingStates;
-
-	CaptureStack captureStack;
 
 	PieceSets white;
 	PieceSets black;
@@ -325,7 +314,7 @@ typedef struct BoardState {
 
 	inline std::string Difference(BoardState &other) {
 		std::stringstream difference;
-		for (int i = 0; i<64; i++) {
+		for (Location i = 0; i<64; i++) {
 			if (squares[i] != other.squares[i]) {
 				difference << "square(" << fileOf(i) + 'A' << ", " << (int) rankOf(i) + 1 << ")\n";
 			}

@@ -9,7 +9,6 @@ template <bool Black>
 PositionValue simpleEvaluate(Move move, BoardSet kingRays) {
 	PositionValue pieceValue = pieceValues[boardState.squares[move.from] & 7];
 
-	BoardSet enemies = Black? boardState.white.all : boardState.black.all;
 	BoardSet enemyAttacks = Black? boardState.whiteAttacks.all : boardState.blackAttacks.all;
 	BoardSet defends = Black? boardState.blackDefends.all : boardState.blackDefends.all;
 
@@ -80,9 +79,12 @@ PositionValue EvaluateControl() {
 	return whiteControl - blackControl;
 }
 
-inline PositionValue Evaluate(bool isBlackTurn) {
+template <bool Black>
+inline PositionValue Evaluate() {
 	PositionValue material = EvaluateMaterial();
 	PositionValue control = EvaluateControl();
-	return DRAW_VALUE + material + control + (isBlackTurn? -1 : 1);
+	PositionValue turn = 1;
+	PositionValue total = DRAW_VALUE + material + control + turn;
+	return Black? -total : total;
 }
 
