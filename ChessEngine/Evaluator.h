@@ -39,44 +39,55 @@ PositionValue EvaluateMaterial() {
 	return whiteMaterial - blackMaterial;
 }
 
-inline const PositionValue controlPositionWeights[] = {
-	1, 1, 2, 2, 2, 2, 1, 1,
-	1, 2, 3, 3, 3, 3, 2, 1,
-	2, 3, 3, 4, 4, 3, 3, 2,
-	2, 3, 4, 5, 5, 4, 3, 2,
-	2, 3, 4, 5, 5, 4, 3, 2,
-	2, 3, 3, 4, 4, 3, 3, 2,
-	1, 2, 3, 3, 3, 3, 2, 1,
-	1, 1, 2, 2, 2, 2, 1, 1,
+constexpr BoardSet controlPositionWeightsSet[5] = {
+	0xC3810000000081C3,
+	0x3C4281818181423C,
+	0x003C664242663C00,
+	0x0000182424180000,
+	0x0000001818000000,
 };
 
 __forceinline 
 PositionValue EvaluatePieceControl(BoardSet attacks) {
-	PositionValue control = 0;
-	while (attacks != 0) {
-		control += controlPositionWeights[extractFirstOccupied(&attacks)];
-	}
-	return control;
+	constexpr BoardSet ones = controlPositionWeightsSet[0] | controlPositionWeightsSet[2] | controlPositionWeightsSet[4];
+	constexpr BoardSet twos = controlPositionWeightsSet[1] | controlPositionWeightsSet[2];
+	constexpr BoardSet fours = controlPositionWeightsSet[3] | controlPositionWeightsSet[4];
+	return
+		1*numberOfOccupancies(attacks & ones) +
+		2*numberOfOccupancies(attacks & twos) +
+		4*numberOfOccupancies(attacks & fours);
 }
 
 __forceinline
 PositionValue EvaluateControl() {
-	PositionValue blackControl =
-		3 * EvaluatePieceControl(boardState.blackAttacks.pawn) +
-		2 * EvaluatePieceControl(boardState.blackAttacks.knight) +
-		2 * EvaluatePieceControl(boardState.blackAttacks.bishop) +
-		1 * EvaluatePieceControl(boardState.blackAttacks.rook) +
-		1 * EvaluatePieceControl(boardState.blackAttacks.queen) -
-		1 * EvaluatePieceControl(boardState.blackAttacks.king);
+	PositionValue whitePawns = EvaluatePieceControl(boardState.whiteAttacks.pawn);
+	PositionValue whiteKnights = EvaluatePieceControl(boardState.whiteAttacks.knight);
+	PositionValue whiteBishops = EvaluatePieceControl(boardState.whiteAttacks.bishop);
+	PositionValue whiteRooks = EvaluatePieceControl(boardState.whiteAttacks.rook);
+	PositionValue whiteQueens = EvaluatePieceControl(boardState.whiteAttacks.queen);
+	PositionValue whiteKings = EvaluatePieceControl(boardState.whiteAttacks.king);
 
-	PositionValue whiteControl = 
-		3 * EvaluatePieceControl(boardState.whiteAttacks.pawn) +
-		2 * EvaluatePieceControl(boardState.whiteAttacks.knight) +
-		2 * EvaluatePieceControl(boardState.whiteAttacks.bishop) +
-		1 * EvaluatePieceControl(boardState.whiteAttacks.rook) +
-		1 * EvaluatePieceControl(boardState.whiteAttacks.queen) -
-		1 * EvaluatePieceControl(boardState.whiteAttacks.king);
-	return whiteControl - blackControl;
+	PositionValue blackPawns = EvaluatePieceControl(boardState.blackAttacks.pawn);
+	PositionValue blackKnights = EvaluatePieceControl(boardState.blackAttacks.knight);
+	PositionValue blackBishops = EvaluatePieceControl(boardState.blackAttacks.bishop);
+	PositionValue blackRooks = EvaluatePieceControl(boardState.blackAttacks.rook);
+	PositionValue blackQueens = EvaluatePieceControl(boardState.blackAttacks.queen);
+	PositionValue blackKings = EvaluatePieceControl(boardState.blackAttacks.king);
+
+	PositionValue pawns = (whitePawns - blackPawns);
+	PositionValue knights = (whiteKnights - blackKnights);
+	PositionValue bishops = (whiteBishops - blackBishops);
+	PositionValue rooks = (whiteRooks - blackRooks);
+	PositionValue queens = (whiteQueens - blackQueens);
+	PositionValue kings = (whiteKings - blackKings);
+
+	return
+		+3 * pawns +
+		+2 * knights +
+		+2 * bishops +
+		+1 * rooks +
+		+1 * queens +
+		-1 * kings;
 }
 
 template <bool Black>

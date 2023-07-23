@@ -93,20 +93,20 @@ int main(int argc, char *argv[])
     CreateFromFEN("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - -", boardState);
     long long timeTotal = 0;
     u8 maxDepth = 4;
-    u8 N = 100;
-    for (int i = 0; i<10; i++) {
-        auto t1 = std::chrono::high_resolution_clock::now();
-        perft<false>(maxDepth);
-        auto t2 = std::chrono::high_resolution_clock::now();
+    u8 N = 50;
+    //for (int i = 0; i<10; i++) {
+    //    auto t1 = std::chrono::high_resolution_clock::now();
+    //    perft<false>(maxDepth);
+    //    auto t2 = std::chrono::high_resolution_clock::now();
 
-        auto ms_nano = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1);
+    //    auto ms_nano = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1);
 
-        std::cout << i << ": " << ms_nano.count()/1e6 << " ms" << std::endl;
-    }
-    std::cout << "Warm up finished" << std::endl;
+    //    std::cout << i << ": " << ms_nano.count()/1e6 << " ms" << std::endl;
+    //}
+    //std::cout << "Warm up finished" << std::endl;
     for (int i = 0; i<N; i++) {
         auto t1 = std::chrono::high_resolution_clock::now();
-        perft<false>(maxDepth);
+        Search<false>();
         auto t2 = std::chrono::high_resolution_clock::now();
 
         auto ms_nano = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1);
