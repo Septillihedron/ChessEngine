@@ -8,7 +8,7 @@
 #include <format>
 #include "MoveGen.h"
 
-u8 max_depth = 3;
+u8 max_depth = 5;
 
 template <bool Black>
 size_t perft(u8 depth) {
@@ -21,7 +21,7 @@ size_t perft(u8 depth) {
         moves[i].Make<Black>();
         moves.push(movesLength);
         count += perft<!Black>(depth - 1);
-        moves.pop(movesLength);
+        moves.pop();
         moves[i].Unmake<Black>();
     }
     return count;
@@ -138,31 +138,38 @@ size_t perftDebug(u8 depth) {
     u8 movesLength = GenerateMoves<Black>();
     size_t count = 0;
 
-    movesPlayed[max_depth-depth] = {};
-    movesUnplayed[max_depth-depth] = {};
+    movesPlayed[depth] = {};
+    movesUnplayed[depth] = {};
 
     BoardState prevState = boardState;
     for (int i = 0; i<movesLength; i++) {
         if (moves[i].to > 63 || moves[i].from > 63) {
             throw "Move out of bounds";
         }
-        movesPlayed[max_depth-depth] = moves[i];
-        moves[i].Make<Black>();
-        moves.push(movesLength);
-        size_t current = perftDebug<!Black>(depth - 1, max_depth);
-        count += current;
-        moves.pop(movesLength);
-        movesUnplayed[max_depth-depth] = moves[i];
-        moves[i].Unmake<Black>();
+        try {
+            movesPlayed[depth] = moves[i];
+            moves[i].Make<Black>();
+            moves.push(movesLength);
+            size_t current = perftDebug<!Black>(depth - 1);
+            count += current;
+            moves.pop();
+            movesUnplayed[depth] = moves[i];
+            moves[i].Unmake<Black>();
+        }
+        catch (std::invalid_argument err) {
+            boardState = {};
+        }
 
         while (!(boardState == prevState)) {
             std::cout << boardState.Difference(prevState);
             try {
                 boardState = prevState;
+                GenerateMoves<Black>();
+                moves[i].metadata &= 0b00000111;
                 moves[i].Make<Black>();
                 moves.push(movesLength);
-                count += perftDebug<!Black>(depth - 1, max_depth);
-                moves.pop(movesLength);
+                count += perftDebug<!Black>(depth - 1);
+                moves.pop();
                 moves[i].Unmake<Black>();
             }
             catch (std::invalid_argument err) {
@@ -219,10 +226,10 @@ bool explorePerft(u8 depth) {
             std::cout << std::format("{:3d}", i) << ": " << moves[i].ToString() << ": ";
             moves[i].Make<Black>();
             moves.push(movesLength);
-            size_t current = perft<!Black>(depth - 1);
+            size_t current = perftDebug<!Black>(depth - 1);
             count += current;
             std::cout << current << std::endl;
-            moves.pop(movesLength);
+            moves.pop();
             moves[i].Unmake<Black>();
         }
         std::cout << std::endl << "Nodes searched: " << count << std::endl;
@@ -238,7 +245,7 @@ bool explorePerft(u8 depth) {
         moves[index].Make<Black>();
         moves.push(movesLength);
         bool exit = explorePerft<!Black>(depth - 1);
-        moves.pop(movesLength);
+        moves.pop();
         moves[index].Unmake<Black>(); 
         if (exit) break;
     }

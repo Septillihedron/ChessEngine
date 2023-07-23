@@ -14,16 +14,15 @@ class PerftTester {
 	MyEngineInterface me;
 	
 	static final String[] testFens = {
+		"startpos",
 		"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -", // to depth 5
 		"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - -", // to depth 6
-		"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", // to depth 5
-		"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", // to depth 5
-		"r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10", // to depth 5
+		"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq -", // to depth 5
+		"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ -", // to depth 5
+		"r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - -", // to depth 5
 	};
 
-	static final String fen = testFens[4];
 	static final List<String> moves = new ArrayList<>(10);
-	static final int maxDepth = 4;
 
 	public static void main(String[] args) throws IOException {
 		System.out.println("Hello world!");
@@ -32,20 +31,36 @@ class PerftTester {
 	
 	PerftTester() throws IOException {
 		sf = new StockfishInterface(Runtime.getRuntime().exec("fish.exe"));
-		me = new MyEngineInterface(Runtime.getRuntime().exec("x64/Release/ChessEngine.exe"));
-		System.out.println("Interfaces initiated");
-		test();
+		System.out.println();
+		out:
+		for (int i=0; i<testFens.length; i++) {
+			int maxDepth = i == 2? 6 : 5;
+			String fen = testFens[i];
+			System.out.println("fen: " + fen);
+			for (int depth=1; depth<=maxDepth; depth++) {
+				if (!test(fen, depth)) break out;
+				System.out.println("depth: " + depth);
+			}
+			System.out.println();
+		}
 		sf.stockfish.destroy();
-		me.myEngine.destroy();
-		System.out.println("Done");
 	}
 	
-	void test() throws IOException {
+	boolean test(String fen, int depth) throws IOException {
+		sf.fen = fen;
+		sf.maxDepth = depth;
+		me = new MyEngineInterface(Runtime.getRuntime().exec(new String[]{"x64/Release/ChessEngine.exe", fen, depth+""}));
+		boolean success = test();
+		me.myEngine.destroy();
+		return success;
+	}
+	
+	boolean test() throws IOException {
 		var sfResult = sf.perft(moves);
 		var meResults = me.read();
 		var moveIndexes = meResults.getKey();
 		var meResult = meResults.getValue();
-		if (sfResult.get("total").longValue() == meResult.get("total").longValue()) return;
+		if (sfResult.get("total").longValue() == meResult.get("total").longValue()) return true;
 		var allMoves = new HashSet<>(sfResult.keySet());
 		allMoves.addAll(meResult.keySet());
 		for (String move : allMoves) {
@@ -54,7 +69,7 @@ class PerftTester {
 			Long meValue = meResult.get(move);
 			if (sfValue == null || meValue == null) {
 				System.out.println("  ".repeat(moves.size()) + move + " diff " + ((meValue == null)? "me" : "sf") + " null");
-				continue;
+				return false;
 			}
 			if (sfResult.get(move).longValue() == meResult.get(move).longValue()) continue;
 			System.out.println("  ".repeat(moves.size()) + move);
@@ -67,13 +82,17 @@ class PerftTester {
 			me.send(-2);
 			me.read();
 			moves.remove(moves.size()-1);
+			return false;
 		}
+		return true;
 	}
 
 	static class StockfishInterface {
 		Process stockfish;
 		BufferedReader output;
 		BufferedWriter input;
+		String fen;
+		int maxDepth;
 		
 		StockfishInterface(Process stockfish) {
 			System.out.println("SF interface initiating");
@@ -90,8 +109,9 @@ class PerftTester {
 		}
 
 		Map<String, Long> perft(List<String> moves) throws IOException {
-			String setPositionCommand = String.format("position fen %s moves %s", fen, String.join(" ", moves));
+			String setPositionCommand = String.format("position %s moves %s", fen.equals("startpos")? fen : "fen " + fen, String.join(" ", moves));
 			String perftCommand = String.format("go perft %d", maxDepth - moves.size());
+			if (maxDepth - moves.size() == 0) return Map.of("total", 1L);
 			
 			input.write(setPositionCommand, 0, setPositionCommand.length());
 			input.newLine();
@@ -122,11 +142,9 @@ class PerftTester {
 		BufferedWriter input;
 		
 		MyEngineInterface(Process myEngine) {
-			System.out.println("ME interface initiating");
 			this.myEngine = myEngine;
 			input = myEngine.outputWriter();
 			output = myEngine.inputReader();
-			System.out.println("ME interface initiated");
 		}
 		
 		void send(int index) throws IOException {

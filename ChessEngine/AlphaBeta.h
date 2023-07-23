@@ -3,15 +3,16 @@
 
 #include "MoveGen.h"
 
+constexpr u8 maxSearchDepth = 25;
+
 #define PositionValue int16_t
-constexpr PositionValue MIN_VALUE = INT16_MIN;
+constexpr PositionValue MIN_VALUE = INT16_MIN+1+maxSearchDepth;
 constexpr PositionValue MAX_VALUE = INT16_MAX;
 constexpr PositionValue DRAW_VALUE = 0;
 constexpr Move NullMove = { (u8) -1, (u8) -1, (u8) -1 };
 
 #include "Evaluator.h"
 
-constexpr u8 maxSearchDepth = 10;
 inline u8 searchDepth = 0;
 
 typedef struct Variation {
@@ -29,12 +30,11 @@ Move Search() {
 	AlphaBeta<Black>(1, MIN_VALUE, MAX_VALUE, &principleVariationNext);
 	principleVariation = principleVariationNext;
 	bestMove = principleVariation.moves[0];
-	for (u8 i = 2; i <= 8; i++) {
+	for (u8 i = 2; i <= 5; i++) {
 		searchDepth = i;
 		PositionValue value = AlphaBeta<Black>(i, MIN_VALUE, MAX_VALUE, &principleVariationNext);
-		std::cout << "depth " << (int) i << ": " << std::endl
-			<< "  value: " << (int) value << std::endl
-			<< "  best move: " << principleVariationNext.moves[0].ToString() << std::endl;
+		std::string betsMoveStr = principleVariationNext.moves[0].ToString();
+		std::cout << "depth " << (int) i << ": " << betsMoveStr << "(" << (int) value << ")" << std::endl;
 		if (searchCanceled) {
 			break;
 		}
@@ -104,7 +104,7 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 	u8 movesSize = GenerateMoves<Black>();
 	OrderMoves<Black>(movesSize, depth);
 	if (movesSize == 0) {
-		if (boardState.checkData.checkCount > 0) return MIN_VALUE;
+		if (boardState.checkData.checkCount > 0) return MIN_VALUE - depth;
 		else return DRAW_VALUE;
 	}
 	for (u8 i = 0; i<movesSize; i++) {

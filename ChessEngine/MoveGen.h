@@ -109,7 +109,7 @@ typedef struct Move {
 typedef struct MovesArray {
 	u16 capacity;
 	u16 start;
-	u16 sizes[20];
+	u16 sizes[50];
 	u8 sizesIndex;
 	Move *moves;
 
@@ -126,7 +126,7 @@ typedef struct MovesArray {
 	}
 	__forceinline void resizeAdd() {
 		capacity += 350;
-		std::cout << "Resized to: " << capacity << std::endl;
+		//std::cout << "Moves array size resized to: " << capacity << std::endl;
 		moves = (Move *) realloc(moves, capacity * sizeof Move);
 	}
 	__forceinline void resizeSub() {
@@ -240,6 +240,7 @@ BoardSet knightMoveSet(BoardSet pieceSet) {
 	}
 	return moves;
 }
+// includes allPieces/blockingPieces
 template <size_t Ray_Index>
 __forceinline
 BoardSet __RayMoveSet(const BoardSet *rays, BoardSet highBits, BoardSet lowBits, BoardSet allPieces) {
@@ -513,11 +514,12 @@ void Move::Unmake() {
 	MakeMoveMoveCaslingRook<Black, true>();
 }
 
-inline void AddAllMoves(u8 start, BoardSet moveSet, Move move) {
-	for (u8 i = 0; moveSet != 0; i++) {
+__forceinline
+void AddAllMoves(u8 start, BoardSet moveSet, Move move) {
+	for (u8 numberOfMoves = 0; moveSet != 0; numberOfMoves++) {
 		Location location = extractFirstOccupied(&moveSet);
 		move.to = location;
-		moves[start + i] = move;
+		moves[start + numberOfMoves] = move;
 	}
 }
 
@@ -564,13 +566,19 @@ u8 generateKnightMoves(u8 start) {
 	return numberOfMoves;
 }
 
+__forceinline
+void generatePawnPromotionMoves(u8 start, Location from, Location to) {
+	moves[start + 0] = { from, to, piece_type::QUEEN };
+	moves[start + 1] = { from, to, piece_type::ROOK };
+	moves[start + 2] = { from, to, piece_type::BISHOP };
+	moves[start + 3] = { from, to, piece_type::KNIGHT };
+}
+
 template <bool In_Promotion_Locations>
+__forceinline
 u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) {
 	if constexpr (In_Promotion_Locations) {
-		moves[start + 0] = { from, to, piece_type::KNIGHT };
-		moves[start + 1] = { from, to, piece_type::BISHOP };
-		moves[start + 2] = { from, to, piece_type::ROOK };
-		moves[start + 3] = { from, to, piece_type::QUEEN };
+		generatePawnPromotionMoves(start, from, to);
 		return 4;
 	}
 	else {
@@ -582,10 +590,7 @@ __forceinline
 u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) {
 	Rank rank = rankOf(to);
 	if (rank == 7 || rank == 0) {
-		moves[start + 0] = { from, to, piece_type::KNIGHT };
-		moves[start + 1] = { from, to, piece_type::BISHOP };
-		moves[start + 2] = { from, to, piece_type::ROOK };
-		moves[start + 3] = { from, to, piece_type::QUEEN };
+		generatePawnPromotionMoves(start, from, to);
 		return 4;
 	}
 	else {
@@ -594,26 +599,60 @@ u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) 
 	}
 }
 
-template <bool Black, bool In_Two_Move_Locations, bool In_Promotion_Locations>
+template <bool Black>
+constexpr BoardSet movePawnForward(BoardSet pawnSet) {
+	if constexpr (Black) {
+		return pawnSet >> 8;
+	}
+	else {
+		return pawnSet << 8;
+	}
+}
+template <bool Negative>
+constexpr BoardSet movePawnSideways(BoardSet pawnSet) {
+	if constexpr (Negative) {
+		return (pawnSet >> 1) & ~HFile;
+	}
+	else {
+		return (pawnSet << 1) & ~AFile;
+	}
+}
+
+template <bool Black>
 u8 generatePawnMoves(u8 start, BoardSet pawnSet, BoardSet allPieces) {
+	constexpr BoardSet twoMoveTargetLocations = movePawnForward<Black>(movePawnForward<Black>(twoMoveLocations<Black>));
+	constexpr BoardSet promotionTargetLocations = movePawnForward<Black>(promotionMoveLocations<Black>);
+	BoardSet firstStep = movePawnForward<Black>(pawnSet) & ~allPieces;
+	BoardSet promotionMovers = firstStep & promotionTargetLocations;
+	BoardSet twoMovers = movePawnForward<Black>(firstStep) & ~allPieces & twoMoveTargetLocations;
+	BoardSet oneMovers = firstStep & ~promotionTargetLocations;
+
+	constexpr Location backwards = (u8) -forward<Black>;
 	u8 numberOfMoves = 0;
-	while (pawnSet != 0) {
-		Location location = extractFirstOccupied(&pawnSet);
-		Location target = location + forward<Black>;
-		if (!isOccupied(allPieces, target)) {
-			numberOfMoves += generatePawnMovesWithPossiblePromotion<In_Promotion_Locations>(start + numberOfMoves, location, target);
-			if constexpr (In_Two_Move_Locations) {
-				target += forward<Black>;
-				if (!isOccupied(allPieces, target)) {
-					moves[start + numberOfMoves] = { location, target, piece_type::NONE };
-					numberOfMoves++;
-				}
-			}
-		}
+	// promotions
+	while (promotionMovers != 0) {
+		Location target = extractFirstOccupied(&promotionMovers);
+		Location from = (u8) (target + backwards);
+		generatePawnPromotionMoves(start + numberOfMoves, from, target);
+		numberOfMoves += 4;
+	}
+	// double movers
+	while (twoMovers != 0) {
+		constexpr Location doubleBackwards = (u8) (2*backwards);
+		Location target = extractFirstOccupied(&twoMovers);
+		Location from = (u8) (target + doubleBackwards);
+		moves[start + numberOfMoves] = { from, target, piece_type::NONE };
+		numberOfMoves += 1;
+	}
+	// one movers
+	while (oneMovers != 0) {
+		Location target = extractFirstOccupied(&oneMovers);
+		Location from = (u8) (target + backwards);
+		moves[start + numberOfMoves] = { from, target, piece_type::NONE };
+		numberOfMoves += 1;
 	}
 	return numberOfMoves;
 }
-
 template <bool Black>
 bool isEnPassantPinned(Location pawnLocation) {
 	BoardSet king;
@@ -645,105 +684,101 @@ bool isEnPassantPinned(Location pawnLocation) {
 	}
 	return false;
 }
-
-template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations, File Direction>
-u8 generatePawnAttacks(u8 start, BoardSet pawnSet, BoardSet enemyPieces) {
-	PinnedSets *pinnedSets;
-
+template <bool Black, bool Negative, bool Promotions>
+__forceinline
+u8 addPawnAttacks(u8 start, BoardSet attacks) {
+	constexpr Location offset = (Location) (forward<Black> + ((Black ^ Negative)? -1 : 1));
+	u8 numberOfMoves = 0;
+	while (attacks != 0) {
+		Location target = extractFirstOccupied(&attacks);
+		numberOfMoves += generatePawnMovesWithPossiblePromotion<Promotions>(start + numberOfMoves, (Location) (target - offset), target);
+	}
+	return numberOfMoves;
+}
+template <bool Black>
+u8 generateEnPassants(u8 start, BoardSet negativeAttacks, BoardSet positiveAttacks) {
+	File enPassantFile = boardState.enPassantTargets.current();
+	if (enPassantFile == NullLocation) return 0;
 	if constexpr (Black) {
-		pinnedSets = &boardState.blackPinnedSets;
+		// make sure that negative attacks is going torwards the A file
+		std::swap(negativeAttacks, positiveAttacks);
 	}
-	else {
-		pinnedSets = &boardState.whitePinnedSets;
-	}
-	if constexpr (Direction == (File) 1) {
-		if constexpr (Black) pawnSet &= ~pinnedSets->positiveDiagonal;
-		else pawnSet &= ~pinnedSets->negativeDiagonal;
-	}
-	else {
-		if constexpr (Black) pawnSet &= ~pinnedSets->negativeDiagonal;
-		else pawnSet &= ~pinnedSets->positiveDiagonal;
-	}
+	Location targetLocation = (Location) (((Black)? 2*8 : 5*8) + enPassantFile);
+	BoardSet target = 1ULL << targetLocation;
 
 	u8 numberOfMoves = 0;
-	while (pawnSet != 0) {
-		Location location = extractFirstOccupied(&pawnSet);
-		Location target = location + forward<Black> +Direction;
-		if constexpr (In_En_Passant_Locations) {
-			File targetFile = boardState.enPassantTargets.current();
-			if (targetFile != NullLocation) {
-				File attackedFile = fileOf(location) + (u8) Direction;
-				if (targetFile == attackedFile) {
-					if (!isEnPassantPinned<Black>(location)) {
-						moves[start + numberOfMoves] = { location, target, piece_type::NONE };
-						numberOfMoves++;
-					}
-				}
-			}
+
+	if (isOccupied(negativeAttacks, targetLocation)) {
+		Location from = (Location) (targetLocation - forward<Black> +1);
+		if (!isEnPassantPinned<Black>(from)) {
+			moves[start + numberOfMoves] = { from, targetLocation, piece_type::NONE };
+			numberOfMoves++;
 		}
-		else {
-			if (isOccupied(enemyPieces, target)) {
-				numberOfMoves += generatePawnMovesWithPossiblePromotion<In_Promotion_Locations>(start + numberOfMoves, location, target);
-			}
+	}
+	if (isOccupied(positiveAttacks, targetLocation)) {
+		Location from = (Location) (targetLocation - forward<Black> -1);
+		if (!isEnPassantPinned<Black>(from)) {
+			moves[start + numberOfMoves] = { from, targetLocation, piece_type::NONE };
+			numberOfMoves++;
 		}
 	}
 	return numberOfMoves;
 }
-
-template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
-constexpr BoardSet specialMoveLocations() {
-	if constexpr (In_En_Passant_Locations) {
-		return enPassantLocations<Black>;
-	}
-	if constexpr (In_Promotion_Locations) {
-		return promotionMoveLocations<Black>;
-	}
-	return allOccupiedSet & ~promotionMoveLocations<Black>;
-}
-
-template <bool Black, bool In_En_Passant_Locations, bool In_Promotion_Locations>
-u8 generatePawnAttacksWithPossibleSpecialMoves(u8 start, BoardSet pawnSet, BoardSet enemyPieces) {
-	constexpr BoardSet specialMovesLocations = specialMoveLocations<Black, In_En_Passant_Locations, In_Promotion_Locations>();
+template <bool Black>
+u8 generatePawnAttacks(u8 start, BoardSet pawnSet, BoardSet enemyPieces, PinnedSets &pinnedSets) {
+	constexpr BoardSet promotionTargetLocations = movePawnForward<Black>(promotionMoveLocations<Black>);
 
 	u8 numberOfMoves = 0;
-	numberOfMoves += generatePawnAttacks<Black, In_En_Passant_Locations, In_Promotion_Locations, (File) -1>(start + numberOfMoves, pawnSet & ~AFile & specialMovesLocations, enemyPieces);
-	numberOfMoves += generatePawnAttacks<Black, In_En_Passant_Locations, In_Promotion_Locations, (File) +1>(start + numberOfMoves, pawnSet & ~HFile & specialMovesLocations, enemyPieces);
+
+	BoardSet negativeAttacks = movePawnSideways<!Black>(movePawnForward<Black>(pawnSet & ~pinnedSets.positiveDiagonal));
+	BoardSet positiveAttacks = movePawnSideways<Black>(movePawnForward<Black>(pawnSet & ~pinnedSets.negativeDiagonal));
+
+	numberOfMoves += generateEnPassants<Black>(start + numberOfMoves, negativeAttacks, positiveAttacks);
+
+	negativeAttacks &= enemyPieces;
+	positiveAttacks &= enemyPieces;
+
+	BoardSet negativeAttackPromotions = negativeAttacks & promotionTargetLocations;
+	BoardSet positiveAttackPromotions = positiveAttacks & promotionTargetLocations;
+
+	negativeAttacks &= ~promotionTargetLocations;
+	positiveAttacks &= ~promotionTargetLocations;
+
+	// promotions attacks
+	numberOfMoves += addPawnAttacks<Black, true, true>(start + numberOfMoves, negativeAttackPromotions);
+	numberOfMoves += addPawnAttacks<Black, false, true>(start + numberOfMoves, positiveAttackPromotions);
+	// normal attacks
+	numberOfMoves += addPawnAttacks<Black, true, false>(start + numberOfMoves, negativeAttacks);
+	numberOfMoves += addPawnAttacks<Black, false, false>(start + numberOfMoves, positiveAttacks);
+
 	return numberOfMoves;
 }
 
-// Recode all pawn moves and attacks (more bit hacks (shifting for enemy set))
 template <bool Black>
 u8 generatePawnMovesAndAttacks(u8 start) {
 	BoardSet friendlyPieces;
 	BoardSet enemyPieces;
 	BoardSet allPieces;
 	BoardSet pawnSet;
-	PinnedSets *pinnedSets;
+	PinnedSets &pinnedSets = (Black)? boardState.blackPinnedSets : boardState.whitePinnedSets;
 	if constexpr (Black) {
 		pawnSet = boardState.black.pawn;
 		friendlyPieces = boardState.black.all;
 		enemyPieces = boardState.white.all;
-		pinnedSets = &boardState.blackPinnedSets;
 	}
 	else {
 		pawnSet = boardState.white.pawn;
 		friendlyPieces = boardState.white.all;
 		enemyPieces = boardState.black.all;
-		pinnedSets = &boardState.whitePinnedSets;
 	}
 	allPieces = friendlyPieces | enemyPieces;
-	pawnSet &= ~pinnedSets->horizontal;
+	pawnSet &= ~pinnedSets.horizontal;
 	u8 numberOfMoves = 0;
-	// attacks
-	BoardSet attackPawnSet = pawnSet & ~pinnedSets->vertical;
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, true>(start + numberOfMoves, attackPawnSet, enemyPieces); // promotions
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, true, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // en passant
-	numberOfMoves += generatePawnAttacksWithPossibleSpecialMoves<Black, false, false>(start + numberOfMoves, attackPawnSet, enemyPieces); // normal
-	// moves
-	BoardSet movingPawnSet = pawnSet & ~(pinnedSets->negativeDiagonal | pinnedSets->positiveDiagonal);
-	numberOfMoves += generatePawnMoves<Black, false, true>(start + numberOfMoves, movingPawnSet & promotionMoveLocations<Black>, allPieces); // promotions
-	numberOfMoves += generatePawnMoves<Black, true, false>(start + numberOfMoves, movingPawnSet & twoMoveLocations<Black>, allPieces); // double steps
-	numberOfMoves += generatePawnMoves<Black, false, false>(start + numberOfMoves, movingPawnSet & oneMoveLocations, allPieces); // single steps
+
+	BoardSet attackPawnSet = pawnSet & ~pinnedSets.vertical;
+	numberOfMoves += generatePawnAttacks<Black>(start + numberOfMoves, attackPawnSet, enemyPieces, pinnedSets);
+	BoardSet movingPawnSet = pawnSet & ~(pinnedSets.negativeDiagonal | pinnedSets.positiveDiagonal);
+	numberOfMoves += generatePawnMoves<Black>(start + numberOfMoves, movingPawnSet, allPieces);
 
 	return numberOfMoves;
 }
@@ -804,6 +839,7 @@ u8 generateRookLikeMoves(u8 start) {
 		enemyPieces = boardState.black.all;
 		pinnedSets = &boardState.whitePinnedSets;
 	}
+
 	rookSet &= ~pinnedSets->diagonal;
 	u8 numberOfMoves = 0;
 	while (rookSet != 0) {
