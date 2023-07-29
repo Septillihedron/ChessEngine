@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <stdint.h>
 #include <format>
+#include <vector>
 #include "BoardRepresentation.h"
 #include "MoveSets.h"
 
@@ -141,30 +142,23 @@ typedef struct MovesArray {
 } MovesArray;
 
 extern MovesArray moves;
+extern std::vector<Move> movesPlayed;
 
 extern int captures;
 
 inline void Move::MakeMoveChangeCaslingRights(PieceType pieceType) {
 	CaslingState caslingState = boardState.caslingStates.currentState();
-	if (from == 0 || to == 0) {
-		caslingState &= ~0b0010;
-	}
-	if (from == 7 || to == 7) {
-		caslingState &= ~0b0001;
-	}
-	if (from == 56 || to == 56) {
-		caslingState &= ~0b1000;
-	}
-	if (from == 63 || to == 63) {
-		caslingState &= ~0b0100;
-	}
 
-	if (pieceType == piece_type::WHITE_KING) {
-		caslingState &= ~0b0011;
-	}
-	else if (pieceType == piece_type::BLACK_KING) {
-		caslingState &= ~0b1100;
-	}
+	if (caslingState == 0) return;
+
+	if (from == 000 || to == 000) caslingState &= 0b1101;
+	if (from == 007 || to == 007) caslingState &= 0b1110;
+	if (from == 070 || to == 070) caslingState &= 0b0111;
+	if (from == 077 || to == 077) caslingState &= 0b1011;
+
+	if (from == 0004) caslingState &= 0b1100;
+	if (from == 0074) caslingState &= 0b0011;
+
 	metadata |= boardState.caslingStates.push(caslingState);
 }
 
@@ -436,6 +430,7 @@ void CheckUncheckedChecks() {
 
 template <bool Black>
 void Move::Make() {
+	movesPlayed.push_back(*this);
 	PieceType pieceType = boardState.squares[from];
 
 	boardState.SetPiece<true>(from, piece_type::NONE);
@@ -475,6 +470,7 @@ void Move::Make() {
 }
 template <bool Black>
 void Move::Unmake() {
+	movesPlayed.pop_back();
 	PieceType pieceType = boardState.squares[to];
 	PieceType pieceColor = pieceType & 0b1000;
 
@@ -1069,7 +1065,6 @@ u8 GenerateMoves() {
 	if (moves.start + 350 > moves.capacity) {
 		moves.resizeAdd();
 	}
-	UpdateAttackAndDefendSets<Black>();
 	UpdateAttackAndDefendSets<!Black>();
 	GeneratePinnedSets<Black>();
 	CheckUncheckedChecks<Black>();

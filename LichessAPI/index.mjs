@@ -12,13 +12,33 @@ const headers = {
 };
 
 const listeners = {
-	challenge: acceptChallenge,
+	//challenge: acceptChallenge,
 	gameStart: startEngine
 };
 
+async function fetchRetry(url, options, retries = 0, resolve = undefined) {
+	if (retries >= 10) {
+		resolve(undefined);
+		return;
+	}
+	if (resolve) {
+		fetch(url, options)
+			.then(x => resolve(x))
+			.catch(x => {
+				if (retries >= 9) return
+				console.log(`fetch failed ${retries} times, retrying...`);
+				setTimeout(() => fetchRetry(url, options, retries + 1), 64*Math.pow(2, retries + 1));
+			})
+		return;
+	}
+	return new Promise(resolve => {
+		fetchRetry(url, options, retries, resolve);
+	})
+}
+
 (async function listenerHandler() {
 	const url = `${endPoint}/stream/event`;
-	new NdjsonStream(await fetch(url, { headers }))
+	new NdjsonStream(await fetchRetry(url, { headers }))
 		.forEach(event => {
 			console.log(event);
 			let eventType = event.type;
@@ -43,12 +63,12 @@ async function startEngine(event) {
 	let gameId = game.gameId;
 	let fen = game.fen;
 
-	let engine = new EngineAPI(game.color[0]);
+	let engine = new EngineAPI(game.color[0], game.fen);
 
-	await delay(10000);
+	await delay(1000);
 
 	let url = `${endPoint}/bot/game/stream/${gameId}`;
-	let moveStream = new NdjsonStream(await fetch(url, { headers }));
+	let moveStream = new NdjsonStream(await fetchRetry(url, { headers }));
 
 	if (game.color[0] == 'w') await makeMove(gameId, await engine.playFirstMove())
 	
@@ -60,24 +80,29 @@ async function startEngine(event) {
 			console.log(moveEvent.moves);
 			bestMove = await engine.go(moveEvent.moves.split(" "));
 		} else if (moveEvent.type == "gameFull") {
-			console.log(moveEvent.state.moves);
-			engine.startfen = moveEvent.initialFen;
-			bestMove = await engine.go(moveEvent.state.moves.split(" "));
+			//console.log(moveEvent.state.moves);
+			//engine.startfen = moveEvent.initialFen;
+			//bestMove = await engine.go(moveEvent.state.moves.split(" "));
+		} else if (moveEvent.type == "gameFinish") {
+			await fetch(`${endPoint}/challenge/ai`, { headers: {...headers, "Content-Type": "x-www-form-urlencoded"}, method: "POST", body: "level=6" });
+			engine.close();
+			break;
 		}
 		await makeMove(gameId, bestMove);
 	}
 }
 
-async function makeMove(gameId, move) {
+async function makeMove(gameId, move, retries = 0) {
+	if (retries >= 10) return;
 	if (move === undefined) return;
 	let url = `${endPoint}/bot/game/${gameId}/move/${move}`
-	fetch(url, { headers, method: "post" })
-		.then(res => res.json())
-		.then(status => {
-			if (status.ok === true) {
-				console.log(`bot: ${move}`);
-			} else {
-				console.log(`error: ${status.error}`);
-			}
-		})
+	const res = await fetchRetry(url, { headers, method: "POST" })
+	const status = await res.json();
+	if (status.ok === true) {
+		console.log(`bot: ${move}`);
+	} else {
+		console.log(`error: ${status.error}`);
+		await new Promise(resolve => setTimeout(() => resolve, 64*Math.pow(2, retries + 1)))
+		await makeMove(gameId, move, retries + 1)
+	}
 }

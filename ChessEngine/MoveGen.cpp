@@ -6,5 +6,6 @@ MovesArray::MovesArray() {
 }
 
 MovesArray moves = MovesArray();
+std::vector<Move> movesPlayed;
 int captures;
 

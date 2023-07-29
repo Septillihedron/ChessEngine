@@ -6,8 +6,8 @@
 constexpr u8 maxSearchDepth = 25;
 
 #define PositionValue int16_t
-constexpr PositionValue MIN_VALUE = INT16_MIN+1+maxSearchDepth;
-constexpr PositionValue MAX_VALUE = INT16_MAX;
+constexpr PositionValue MAX_VALUE = INT16_MAX-1;
+constexpr PositionValue MIN_VALUE = -MAX_VALUE;
 constexpr PositionValue DRAW_VALUE = 0;
 constexpr Move NullMove = { (u8) -1, (u8) -1, (u8) -1 };
 
@@ -27,19 +27,27 @@ template <bool Black>
 Move Search() {
 	Variation principleVariationNext = {};
 	Move bestMove;
-	AlphaBeta<Black>(1, MIN_VALUE, MAX_VALUE, &principleVariationNext);
+	AlphaBeta<Black>(1, MIN_VALUE-1, MAX_VALUE+1, &principleVariationNext);
 	principleVariation = principleVariationNext;
 	bestMove = principleVariation.moves[0];
-	for (u8 i = 2; i <= 5; i++) {
+	for (u8 i = 2; i < 7; i++) {
 		searchDepth = i;
-		PositionValue value = AlphaBeta<Black>(i, MIN_VALUE, MAX_VALUE, &principleVariationNext);
+		PositionValue value = AlphaBeta<Black>(i, MIN_VALUE-1, MAX_VALUE+1, &principleVariationNext);
 		std::string betsMoveStr = principleVariationNext.moves[0].ToString();
-		std::cout << "depth " << (int) i << ": " << betsMoveStr << "(" << (int) value << ")" << std::endl;
+		std::cout << "depth " << (int) i << ": " << (int) value << " ";
+
+		std::cout << "(";
+		for (int i = 0; i<principleVariationNext.cmove; i++) {
+			std::cout << principleVariationNext.moves[i].ToString() << " ";
+		}
+		std::cout << ")" << std::endl;
+
 		if (searchCanceled) {
 			break;
 		}
 		principleVariation = principleVariationNext;
 		bestMove = principleVariation.moves[0];
+		if (value == MAX_VALUE || value == MIN_VALUE) break;
 	}
 	principleVariation.cmove -= 2;
 	memmove(principleVariation.moves, principleVariation.moves + 2, principleVariation.cmove);
@@ -100,11 +108,19 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 		principleVariation->cmove = 0;
 		return Evaluate<Black>();
 	}
+	Move *last12Moves = movesPlayed.data() + movesPlayed.size() - 12;
+	if (last12Moves[11] == last12Moves[11-4]) {
+		if (last12Moves[11-4] == last12Moves[11-4-4]) {
+			principleVariation->cmove = 0;
+			return DRAW_VALUE;
+		}
+	}
 	Variation variation = {};
 	u8 movesSize = GenerateMoves<Black>();
 	OrderMoves<Black>(movesSize, depth);
 	if (movesSize == 0) {
-		if (boardState.checkData.checkCount > 0) return MIN_VALUE - depth;
+		principleVariation->cmove = 0;
+		if (boardState.checkData.checkCount > 0) return MIN_VALUE;
 		else return DRAW_VALUE;
 	}
 	for (u8 i = 0; i<movesSize; i++) {
@@ -121,6 +137,9 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 			principleVariation->moves[0] = moves[i];
 			memcpy(principleVariation->moves + 1, variation.moves, variation.cmove * sizeof(Move));
 			principleVariation->cmove = variation.cmove + 1;
+			if (value == MAX_VALUE) {
+				return value;
+			}
 		}
 		if (searchCanceled) return alpha;
 	}

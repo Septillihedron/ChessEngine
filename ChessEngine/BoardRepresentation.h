@@ -50,6 +50,7 @@ namespace piece_type {
 	constexpr PieceType QUEEN = 005;
 	constexpr PieceType KING = 006;
 
+	constexpr PieceType WHITE = 000;
 	constexpr PieceType WHITE_PAWN = 001;
 	constexpr PieceType WHITE_KNIGHT = 002;
 	constexpr PieceType WHITE_BISHOP = 003;
@@ -57,6 +58,7 @@ namespace piece_type {
 	constexpr PieceType WHITE_QUEEN = 005;
 	constexpr PieceType WHITE_KING = 006;
 
+	constexpr PieceType BLACK = 010;
 	constexpr PieceType BLACK_PAWN = 011;
 	constexpr PieceType BLACK_KNIGHT = 012;
 	constexpr PieceType BLACK_BISHOP = 013;

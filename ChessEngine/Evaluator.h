@@ -82,16 +82,19 @@ PositionValue EvaluateControl() {
 	PositionValue kings = (whiteKings - blackKings);
 
 	return
-		+3 * pawns +
-		+2 * knights +
-		+2 * bishops +
-		+1 * rooks +
+		+5 * pawns +
+		+4 * knights +
+		+4 * bishops +
+		+2 * rooks +
 		+1 * queens +
 		-1 * kings;
 }
 
 template <bool Black>
 inline PositionValue Evaluate() {
+	UpdateAttackAndDefendSets<true>();
+	UpdateAttackAndDefendSets<false>();
+
 	PositionValue material = EvaluateMaterial();
 	PositionValue control = EvaluateControl();
 	PositionValue turn = 1;

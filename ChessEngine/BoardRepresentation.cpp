@@ -57,14 +57,20 @@ BoardState CreateBoardState() {
 		011, 011, 011, 011, 011, 011, 011, 011,
 		014, 012, 013, 015, 016, 013, 012, 014,
 	};
+	movesPlayed.reserve(100);
+	// add padding
+	for (Location i = 0; i<12; i++) {
+		Move m = { i, 0, 0 };
+		movesPlayed.push_back(m);
+	}
 	memcpy(boardState.squares, squares, 64);
 	return boardState;
 }
 
 PieceType CharToPieceType(char c) {
-	bool color = c > 'a';
-	PieceType colorMask = color? 0b1000 : 0b0000;
-	switch (color? c-('a'-'A') : c)
+	bool isBlack = c > 'a';
+	PieceType colorMask = isBlack? piece_type::BLACK : piece_type::WHITE;
+	switch (isBlack? c-('a'-'A') : c)
 	{
 	case 'P':
 		return piece_type::PAWN | colorMask;
