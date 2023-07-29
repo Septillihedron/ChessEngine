@@ -20,6 +20,8 @@ typedef struct Variation {
 	Move moves[maxSearchDepth];
 } Variation;
 
+inline Variation variations[maxSearchDepth];
+
 inline Variation principleVariation;
 inline bool searchCanceled = false;
 
@@ -115,14 +117,15 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 			return DRAW_VALUE;
 		}
 	}
-	Variation variation = {};
 	u8 movesSize = GenerateMoves<Black>();
-	OrderMoves<Black>(movesSize, depth);
 	if (movesSize == 0) {
 		principleVariation->cmove = 0;
 		if (boardState.checkData.checkCount > 0) return MIN_VALUE;
 		else return DRAW_VALUE;
 	}
+	Variation &variation = variations[depth];
+	variation.cmove = 0;
+	OrderMoves<Black>(movesSize, depth);
 	for (u8 i = 0; i<movesSize; i++) {
 		moves[i].Make<Black>();
 		moves.push(movesSize);
