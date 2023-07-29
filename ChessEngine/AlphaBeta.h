@@ -75,8 +75,8 @@ void OrderMoves(u8 movesSize, u8 depth) {
 		moveIndexTempSize[i] = 0;
 	}
 	Move principalMove = NullMove;
-	const BoardSet *rays = pinRays[firstOccupied(Black? boardState.black.king : boardState.white.king)];
-	BoardSet kingRays = rays[0] | rays[1] | rays[2] | rays[3];
+	BoardSet &king = Black? boardState.black.king : boardState.white.king;
+	BoardSet kingRays = RaysMoveSet<true, true>(king, boardState.black.all | boardState.white.all);
 	for (u8 i = 0; i<movesSize; i++) {
 		if (moves[i] == principleVariation.moves[principleVariation.cmove - depth]) {
 			principalMove = moves[i];
