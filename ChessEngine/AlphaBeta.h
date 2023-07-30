@@ -66,8 +66,7 @@ inline Move Search(bool isBlackTurn) {
 }
 
 inline u8 moveIndexTempSize[21];
-inline u8 moveIndexTemp[21][256];
-inline Move movesTemp[256];
+inline Move moveIndexTemp[21][256];
 
 template <bool Black>
 void OrderMoves(u8 movesSize, u8 depth) {
@@ -84,23 +83,18 @@ void OrderMoves(u8 movesSize, u8 depth) {
 		}
 		PositionValue value = simpleEvaluate<Black>(moves[i], kingRays);
 
-		moveIndexTemp[value][moveIndexTempSize[value]] = i;
+		moveIndexTemp[value][moveIndexTempSize[value]] = moves[i];
 		moveIndexTempSize[value]++;
 	}
-	u8 index = 0;
-	for (u8 i = 20; i >= 0; i--) {
-		for (u8 j = 0; j<moveIndexTempSize[i]; j++) {
-			movesTemp[index] = moves[moveIndexTemp[i][j]];
-			index++;
-		}
-		if (i == 0) break;
-	}
-	if (principalMove.from == (u8) -1) {
-		memcpy(moves.moves + moves.start, movesTemp, index * sizeof(Move));
-	}
-	else {
-		memcpy(moves.moves + moves.start + 1, movesTemp, index * sizeof(Move));
+	u8 start = (principalMove.from == (u8) -1)? 0 : 1;
+	if (principalMove.from != (u8) -1) {
 		moves[0] = principalMove;
+		start++;
+	}
+	for (u8 i = 20; ; i--) {
+		memcpy(moves.moves + moves.start + start, moveIndexTemp[i], moveIndexTempSize[i] * sizeof(Move));
+		start += moveIndexTempSize[i];
+		if (i == 0) return;
 	}
 }
 

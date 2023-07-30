@@ -57,12 +57,6 @@ BoardState CreateBoardState() {
 		011, 011, 011, 011, 011, 011, 011, 011,
 		014, 012, 013, 015, 016, 013, 012, 014,
 	};
-	movesPlayed.reserve(100);
-	// add padding
-	for (Location i = 0; i<12; i++) {
-		Move m = { i, 0, 0 };
-		movesPlayed.push_back(m);
-	}
 	memcpy(boardState.squares, squares, 64);
 	return boardState;
 }

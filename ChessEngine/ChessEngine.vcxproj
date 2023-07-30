@@ -231,6 +231,7 @@
     <ClCompile Include="ChessEngine.cpp" />
     <ClCompile Include="MoveGen.cpp" />
     <ClCompile Include="MoveSets.cpp" />
+    <ClCompile Include="Zobrist.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AlphaBeta.h" />

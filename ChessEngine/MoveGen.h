@@ -235,13 +235,12 @@ BoardSet knightMoveSet(BoardSet pieceSet) {
 	return moves;
 }
 // includes allPieces/blockingPieces
-template <size_t Ray_Index>
 __forceinline
-BoardSet __RayMoveSet(const BoardSet *rays, BoardSet highBits, BoardSet lowBits, BoardSet allPieces) {
-	BoardSet highRayFirstPiece = onlyFirstBit(highBits & rays[Ray_Index] & allPieces);
-	BoardSet lowRayLastPiece = onlyLastBit(lowBits & rays[Ray_Index] & allPieces);
-	BoardSet highRay = ((highRayFirstPiece != 0)? ((highRayFirstPiece - 1) | highRayFirstPiece) : allOccupiedSet) & highBits & rays[Ray_Index];
-	BoardSet lowRay = ((lowRayLastPiece != 0)? ~(lowRayLastPiece - 1) : allOccupiedSet) & lowBits & rays[Ray_Index];
+BoardSet __RayMoveSet(BoardSet ray, BoardSet highBits, BoardSet lowBits, BoardSet allPieces) {
+	BoardSet highRayPieces = highBits & ray & allPieces;
+	BoardSet lowRayLastPiece = onlyLastBit(lowBits & ray & allPieces);
+	BoardSet highRay = belowLS1B<true>(highRayPieces) & highBits & ray;
+	BoardSet lowRay = ((lowRayLastPiece != 0)? ~(lowRayLastPiece - 1) : allOccupiedSet) & lowBits & ray;
 
 	return highRay | lowRay;
 }
@@ -250,21 +249,18 @@ __forceinline
 BoardSet RaysMoveSet(BoardSet pieceSet, BoardSet blockingPieces) {
 	BoardSet moves = 0;
 	while (pieceSet != 0) {
-		Location location = firstOccupied(pieceSet);
+		BoardSet lowBits = belowLS1B(pieceSet);
+		BoardSet highBits = aboveLS1B(pieceSet);
+		Location location = extractFirstOccupied(&pieceSet);
 		const BoardSet *rays = pinRays[location];
 
-		BoardSet piece = 1ULL << location;
-		pieceSet &= ~piece;
-		BoardSet lowBits = (piece - 1);
-		BoardSet highBits = ~(lowBits | piece);
-
 		if constexpr (Laterals) {
-			moves |= __RayMoveSet<1>(rays, highBits, lowBits, blockingPieces);
-			moves |= __RayMoveSet<3>(rays, highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet(rays[1], highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet(rays[3], highBits, lowBits, blockingPieces);
 		}
 		if constexpr (Diagonals) {
-			moves |= __RayMoveSet<0>(rays, highBits, lowBits, blockingPieces);
-			moves |= __RayMoveSet<2>(rays, highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet(rays[0], highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet(rays[2], highBits, lowBits, blockingPieces);
 		}
 
 	}
@@ -276,7 +272,7 @@ BoardSet kingMoveSet(BoardSet pieceSet) {
 }
 
 template <bool After_King>
-__forceinline
+__inline
 BoardSet ScanPinRay(BoardSet attackingPieces, BoardSet enemyBlockingPieces, BoardSet friendlyBlockingPieces, BoardSet ray) {
 	attackingPieces &= ray;
 	if (attackingPieces == 0) return 0;

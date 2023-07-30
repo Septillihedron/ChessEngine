@@ -56,19 +56,32 @@ Location extractFirstOccupied(BoardSet *set) {
 	if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
 	unsigned long index = 0;
 	_BitScanForward64(&index, *set);
-	*set = *set & ~(((BoardSet) 1) << index);
+	*set &= (*set - 1);
 	Location location = (Location) index;
 	return location;
 }
 __forceinline
 BoardSet onlyFirstBit(BoardSet set) {
-	if (set == 0) return 0;
-	return 1ULL << firstOccupied(set);
+	return set & (0-set);
 }
 __forceinline
 BoardSet onlyLastBit(BoardSet set) {
 	if (set == 0) return 0;
 	return 1ULL << lastOccupied(set);
+}
+__forceinline
+BoardSet aboveLS1B(BoardSet x) {
+	return x ^ (0-x);
+}
+template <bool Include_LS1B = false>
+__forceinline
+BoardSet belowLS1B(BoardSet x) {
+	if constexpr (Include_LS1B) {
+		return x ^ (x - 1);
+	}
+	else {
+		return ~x & (x - 1);
+	}
 }
 __forceinline
 u8 numberOfOccupancies(BoardSet set) {

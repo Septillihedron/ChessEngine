@@ -102,8 +102,8 @@ inline constexpr ConstexprArray<Move, Size> StringToMoves(std::string movesStr) 
 }
 
 #ifdef DEBUG
-inline Move movesPlayed[10];
-inline Move movesUnplayed[10];
+inline Move movePlayed[10];
+inline Move moveUnplayed[10];
 
 inline std::string MoveInitiatorString(Move move) {
     return std::format("{{ {:#03o}, {:#03o}, {:#03b} }}, ", move.from, move.to, move.metadata);
@@ -112,12 +112,12 @@ inline std::string MoveInitiatorString(Move move) {
 inline std::string PlayedMovesToString() {
     std::string allMoves;
     for (int i = 0; i<max_depth; i++) {
-        Move move = movesPlayed[i];
+        Move move = movePlayed[i];
         allMoves += MoveInitiatorString(move);
     }
     allMoves += "\n";
     for (int i = 0; i<max_depth; i++) {
-        Move move = movesPlayed[i];
+        Move move = movePlayed[i];
         allMoves += move.ToString();
     }
     return allMoves;
@@ -138,8 +138,8 @@ size_t perftDebug(u8 depth) {
     u8 movesLength = GenerateMoves<Black>();
     size_t count = 0;
 
-    movesPlayed[depth] = {};
-    movesUnplayed[depth] = {};
+    movePlayed[depth] = {};
+    moveUnplayed[depth] = {};
 
     BoardState prevState = boardState;
     for (int i = 0; i<movesLength; i++) {
@@ -147,13 +147,13 @@ size_t perftDebug(u8 depth) {
             throw "Move out of bounds";
         }
         try {
-            movesPlayed[depth] = moves[i];
+            movePlayed[depth] = moves[i];
             moves[i].Make<Black>();
             moves.push(movesLength);
             size_t current = perftDebug<!Black>(depth - 1);
             count += current;
             moves.pop();
-            movesUnplayed[depth] = moves[i];
+            moveUnplayed[depth] = moves[i];
             moves[i].Unmake<Black>();
         }
         catch (std::invalid_argument err) {

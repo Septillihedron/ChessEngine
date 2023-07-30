@@ -30,6 +30,9 @@
     <ClCompile Include="MoveSets.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Zobrist.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MoveGen.h">

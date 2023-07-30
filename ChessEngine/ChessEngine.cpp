@@ -39,7 +39,7 @@ void play(int argc, char *argv[]) {
         searchCanceled = false;
         bool cancelCalceler = false;
         auto cancelFunction = [&cancelCalceler]() {
-            for (int times = 0; (times < 5*60*10) && !cancelCalceler; times++) {
+            for (int times = 0; (times < 1*10) && !cancelCalceler; times++) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             searchCanceled = true;
@@ -70,11 +70,11 @@ void play(int argc, char *argv[]) {
 }
 
 void BenchmarkPerft() {
-    CreateFromFEN("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - -", boardState);
+    //CreateFromFEN("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - -", boardState);
     long long timeTotal = 0;
-    u8 maxDepth = 4;
-    u8 N = 100;
-    for (int i = 0; i<20; i++) {
+    u8 maxDepth = 6;
+    u8 N = 50;
+    for (int i = 0; i<10; i++) {
         auto t1 = std::chrono::high_resolution_clock::now();
         perft<false>(maxDepth);
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -118,6 +118,12 @@ void BenchmarkSearch() {
 int main(int argc, char *argv[])
 {
     std::cout << "Hello World!\n";
+    movesPlayed.reserve(100);
+    // add padding
+    for (Location i = 0; i<12; i++) {
+        Move m = { i, 0, 0 };
+        movesPlayed.push_back(m);
+    }
 #ifdef DEBUG
     bool isBlacksTurn = false; // CreateFromFEN("5r2/4kp2/8/3Qp2B/1P5P/3PB2K/8/8 w - -", boardState);
     //playMoves(isBlacksTurn, "b1c3 g8f6 f2f3 f6e4");
@@ -147,7 +153,9 @@ int main(int argc, char *argv[])
     //Move bestMove = Search<false>();
     //std::cout << "Best move: " << bestMove.ToString() << std::endl;
     //play(argc, argv);
-    BenchmarkSearch();
+    //BenchmarkSearch();
+    //BenchmarkPerft();
+    perft<false>(6);
 
 #endif // DEBUG
 
