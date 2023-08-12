@@ -11,6 +11,7 @@ bool isOccupied(BoardSet set, Location loc) {
 	return (set >> loc) & 1;
 }
 template <bool Bit>
+__forceinline
 void setBit(BoardSet *set, Location loc) {
 	if constexpr (Bit) {
 		*set |= 1ULL << loc;
@@ -18,6 +19,10 @@ void setBit(BoardSet *set, Location loc) {
 	else {
 		*set &= ~(1ULL << loc);
 	}
+}
+__forceinline
+void flipBit(BoardSet *set, Location loc) {
+	*set ^= 1ULL << loc;
 }
 __forceinline
 BoardSet bitRange(BoardSet start, BoardSet end) {
@@ -37,7 +42,9 @@ BoardSet bitRangeInside(Location start, Location end) {
 }
 __forceinline
 Location firstOccupied(BoardSet set) {
-	if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
+	if constexpr (_Strict_) {
+		if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
+	}
 	unsigned long index = 0;
 	_BitScanForward64(&index, set);
 	Location location = (Location) index;
@@ -45,7 +52,9 @@ Location firstOccupied(BoardSet set) {
 }
 __forceinline
 Location lastOccupied(BoardSet set) {
-	if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
+	if constexpr (_Strict_) {
+		if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
+	}
 	unsigned long index = 0;
 	_BitScanReverse64(&index, set);
 	Location location = (Location) index;
@@ -53,7 +62,9 @@ Location lastOccupied(BoardSet set) {
 }
 __forceinline
 Location extractFirstOccupied(BoardSet *set) {
-	if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
+	if constexpr (_Strict_) {
+		if (set == 0) throw std::invalid_argument("set is empty (equal to 0)");
+	}
 	unsigned long index = 0;
 	_BitScanForward64(&index, *set);
 	*set &= (*set - 1);

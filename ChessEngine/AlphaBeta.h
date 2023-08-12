@@ -1,15 +1,13 @@
 #pragma once
 #include <stdint.h>
-
+#include "Parameters.h"
 #include "MoveGen.h"
-
-constexpr u8 maxSearchDepth = 25;
 
 #define PositionValue int16_t
 constexpr PositionValue MAX_VALUE = INT16_MAX-1;
 constexpr PositionValue MIN_VALUE = -MAX_VALUE;
 constexpr PositionValue DRAW_VALUE = 0;
-constexpr Move NullMove = { (u8) -1, (u8) -1, (u8) -1 };
+constexpr Move NullMove = { 0xffff };
 
 #include "Evaluator.h"
 
@@ -17,10 +15,12 @@ inline u8 searchDepth = 0;
 
 typedef struct Variation {
 	u8 cmove;
-	Move moves[maxSearchDepth];
+	Move moves[_Max_Search_Depth_];
+
+	Variation() : cmove(0) {}
 } Variation;
 
-inline Variation variations[maxSearchDepth];
+inline Variation variations[_Max_Search_Depth_];
 
 inline Variation principleVariation;
 inline bool searchCanceled = false;
@@ -65,13 +65,13 @@ inline Move Search(bool isBlackTurn) {
 	}
 }
 
-inline u8 moveIndexTempSize[21];
-inline Move moveIndexTemp[21][256];
+inline u8 moveTempSize[21];
+inline Move moveTemp[21][256];
 
 template <bool Black>
 void OrderMoves(u8 movesSize, u8 depth) {
 	for (u8 i = 0; i<21; i++) {
-		moveIndexTempSize[i] = 0;
+		moveTempSize[i] = 0;
 	}
 	Move principalMove = NullMove;
 	BoardSet &king = Black? boardState.black.king : boardState.white.king;
@@ -83,18 +83,17 @@ void OrderMoves(u8 movesSize, u8 depth) {
 		}
 		PositionValue value = simpleEvaluate<Black>(moves[i], kingRays);
 
-		moveIndexTemp[value][moveIndexTempSize[value]] = moves[i];
-		moveIndexTempSize[value]++;
+		moveTemp[value][moveTempSize[value]] = moves[i];
+		moveTempSize[value]++;
 	}
-	u8 start = (principalMove.from == (u8) -1)? 0 : 1;
-	if (principalMove.from != (u8) -1) {
+	u8 start = (principalMove.fromAndType == (u8) -1)? 0 : 1;
+	if (principalMove.fromAndType != (u8) -1) {
 		moves[0] = principalMove;
 		start++;
 	}
-	for (u8 i = 20; ; i--) {
-		memcpy(moves.moves + moves.start + start, moveIndexTemp[i], moveIndexTempSize[i] * sizeof(Move));
-		start += moveIndexTempSize[i];
-		if (i == 0) return;
+	for (int i = 20; i >= 0; i--) {
+		memcpy(moves.moves + moves.start + start, moveTemp[i], moveTempSize[i] * sizeof(Move));
+		start += moveTempSize[i];
 	}
 }
 
@@ -120,12 +119,13 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 	Variation &variation = variations[depth];
 	variation.cmove = 0;
 	OrderMoves<Black>(movesSize, depth);
+	State prevState = boardState.state;
 	for (u8 i = 0; i<movesSize; i++) {
 		moves[i].Make<Black>();
 		moves.push(movesSize);
 		PositionValue value = -AlphaBeta<!Black>(depth - 1, -beta, -alpha, &variation);
 		moves.pop();
-		moves[i].Unmake<Black>();
+		moves[i].Unmake<Black>(prevState);
 		if (value >= beta) {
 			return beta;
 		}

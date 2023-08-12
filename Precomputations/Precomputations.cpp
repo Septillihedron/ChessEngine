@@ -1,10 +1,10 @@
 
 #include <iostream>
 #include <format>
+#include <random>
 #include "Types.h"
 
-int main()
-{
+void LowAndHighBits() {
     std::cout << "{ ";
     for (Location loc = 0; loc < 64; loc++) {
         BoardSet piece = 1ULL << loc;
@@ -24,5 +24,26 @@ int main()
         std::cout << BoardSetToString(highBitsIP) << ", ";
     }
     std::cout << "};" << std::endl;
+}
+
+void Hashes() {
+    std::mt19937 gen(0);
+    std::uniform_int_distribution<Hash> random(INT32_MIN, INT32_MAX);
+    std::cout << "{\n";
+    for (int pieceType = 0; pieceType<12; pieceType++) {
+        std::cout << "  {";
+        for (int loc = 0; loc<64; loc++) {
+            if (loc & 7 == 0) std::cout << "\n    ";
+            Hash hash = random(gen);
+            std::cout << HashToString(hash) << ", ";
+        }
+        std::cout << "  }, \n";
+    }
+    std::cout << "};\n";
+}
+
+int main()
+{
+    Hashes();
 }
 

@@ -7,18 +7,18 @@ const PositionValue pieceValues[] = {
 
 template <bool Black>
 PositionValue simpleEvaluate(Move move, BoardSet kingRays) {
-	PositionValue pieceValue = pieceValues[boardState.squares[move.from] & 7];
+	PositionValue pieceValue = pieceValues[boardState.squares[move.From()] & 7];
 
 	BoardSet enemyAttacks = Black? boardState.whiteAttacks.all : boardState.blackAttacks.all;
 	BoardSet defends = Black? boardState.blackDefends.all : boardState.blackDefends.all;
 
 	PositionValue value = 9;
 
-	PositionValue capturedValue = pieceValues[boardState.squares[move.to] & 7];
+	PositionValue capturedValue = pieceValues[boardState.squares[move.To()] & 7];
 	value += capturedValue;
-	if (isOccupied(enemyAttacks, move.to)) value -= pieceValue;
-	if (isOccupied(defends, move.to)) value++;
-	if (isOccupied(kingRays, move.to)) value++;
+	if (isOccupied(enemyAttacks, move.To())) value -= pieceValue;
+	if (isOccupied(defends, move.To())) value++;
+	if (isOccupied(kingRays, move.To())) value++;
 	return value; // min 0, max 21
 }
 

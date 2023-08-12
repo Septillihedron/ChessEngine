@@ -2,42 +2,63 @@
 
 #include <cstdlib>
 #include <stdint.h>
-#include <format>
 #include <vector>
+#include "Parameters.h"
 #include "BoardRepresentation.h"
 #include "MoveSets.h"
 
-// ECCCRPPP
-// EC = EnPassant capture
-// E  = Changed EnPassant target
-// C  = captured piece
-// R  = changed casling rights
-// P  = promotion piece
-#define MoveMetadata u8
+// 00TTTPPP
+// T = move type
+// P = promotion piece
+typedef u8 MoveMetadata;
 
-constexpr MoveMetadata EnPassantCapture = 0b111;
+typedef int16_t i16;
+
+enum MoveTypes : MoveMetadata {
+	NORMAL = 0 << 6,
+	EN_PASSANT = 1 << 6,
+	CASLING = 2 << 6,
+	PROMOTION = 3 << 6
+};
 
 typedef struct Move {
-	Location from;
-	Location to;
-	MoveMetadata metadata;
+	union {
+		struct {
+			Location fromAndType;
+			Location toAndPromotion;
+		};
+		u16 move;
+	};
+
+	constexpr Move() : move(0) {}
+
+	constexpr Move(u16 x) : move(x) {}
+	
+	template<MoveTypes type = MoveTypes::NORMAL, PieceType promotionType = piece_type::KNIGHT>
+	__forceinline
+	static Move Make(Location from, Location to) {
+		constexpr PieceType promotionMask = (promotionType - piece_type::KNIGHT) << 6;
+		return Move((from | type) | ((u16) (to | promotionMask) << 8));
+	}
+
+	__forceinline int From() {
+		return fromAndType & 0b00111111;
+	}
+	__forceinline int To() {
+		return toAndPromotion & 0b00111111;
+	}
 
 	__forceinline PieceType PromotionPiece() {
-		return metadata & 7;
+		return (toAndPromotion >> 6) + piece_type::KNIGHT;
 	}
-	__forceinline bool ChangedCaslingRights() {
-		return (metadata >> 3) & 1;
-	}
-	__forceinline PieceType CapturedPiece() {
-		return (metadata >> 4) & 7;
-	}
-	__forceinline bool ChangedEnPassantTarget() {
-		return metadata >> 7;
+	__forceinline MoveTypes MoveType() {
+		return (MoveTypes) (fromAndType & 0b11000000);
 	}
 
-	void MakeMoveChangeCaslingRights(PieceType pieceType);
-	template <bool Black, bool Unmake>
-	void MakeMoveMoveCaslingRook();
+	void MakeMoveChangeCaslingRights(BoardSet toAndFromMask, int from, int to);
+	template <bool Black, bool Reversed>
+	void MakeMoveMoveCaslingRook(int to);
+
 	template <bool Black>
 	void Make();
 	inline void Make(bool Black) {
@@ -45,7 +66,7 @@ typedef struct Move {
 		else Make<false>();
 	}
 	template <bool Black>
-	void Unmake();
+	void Unmake(State prevState);
 
 	inline char PromotionPiece(PieceType type) {
 		switch (type)
@@ -65,52 +86,33 @@ typedef struct Move {
 	}
 
 	inline std::string ToString() {
+		int from = From();
+		int to = To();
 		u8 fromFile = fileOf(from);
 		u8 fromRank = rankOf(from);
 		u8 toFile = fileOf(to);
 		u8 toRank = rankOf(to);
 
-		if ((metadata & 7) == 0) {
-			return std::format("{:c}{:c}{:c}{:c}", fromFile + 'a', fromRank + '1', toFile + 'a', toRank + '1');
+		std::string s;
+		s += (char) (fromFile + 'a');
+		s += (char) (fromRank + '1');
+		s += (char) (toFile + 'a');
+		s += (char) (toRank + '1');
+		if (MoveType() == PROMOTION) {
+			s += PromotionPiece(PromotionPiece());
 		}
-		else {
-			char promotionPiece = PromotionPiece(metadata & 7);
-			return std::format("{:c}{:c}{:c}{:c}{:c}", fromFile + 'a', fromRank + '1', toFile + 'a', toRank + '1', promotionPiece);
-		}
+		return s;
 	}
 
-	//template <bool Undo = false>
-	//inline void checkValid() {
-		//if (
-		//	(!Undo && (to == firstOccupied(boardState.white.king) || to == firstOccupied(boardState.black.king))) ||
-		//	from > 63 || to > 63
-		//) {
-		//	throw "AAAAAAAAAA";
-		//}
-	//}
-
-	//inline Move &operator=(const Move &move) {
-	//	from = move.from;
-	//	to = move.to;
-	//	metadata = move.metadata;
-
-	//	checkValid();
-
-	//	return *this;
-	//}
-
 	inline bool operator==(Move &other) {
-		if (from != other.from) return false;
-		if (to != other.to) return false;
-		if ((metadata & 7) != (other.metadata & 7)) return false;
-		return true;
+		return move == other.move;
 	}
 } Move;
 
 typedef struct MovesArray {
 	u16 capacity;
 	u16 start;
-	u16 sizes[50];
+	u16 sizes[_Max_Search_Depth_];
 	u8 sizesIndex;
 	Move *moves;
 
@@ -128,11 +130,11 @@ typedef struct MovesArray {
 	__forceinline void resizeAdd() {
 		capacity += 350;
 		//std::cout << "Moves array size resized to: " << capacity << std::endl;
-		moves = (Move *) realloc(moves, capacity * sizeof Move);
+		moves = (Move *) realloc(moves, capacity * sizeof(Move));
 	}
 	__forceinline void resizeSub() {
 		capacity -= 350;
-		moves = (Move *) realloc(moves, capacity * sizeof Move);
+		moves = (Move *) realloc(moves, capacity * sizeof(Move));
 	}
 
 	__forceinline Move &operator[](u8 index) {
@@ -146,10 +148,16 @@ extern std::vector<Move> movesPlayed;
 
 extern int captures;
 
-inline void Move::MakeMoveChangeCaslingRights(PieceType pieceType) {
-	CaslingState caslingState = boardState.caslingStates.currentState();
+inline void Move::MakeMoveChangeCaslingRights(BoardSet toAndFromMask, int from, int to) {
+	CaslingState &caslingState = boardState.state.casling;
 
-	if (caslingState == 0) return;
+	if (caslingState == 0) {
+		return;
+	}
+
+	if ((toAndFromMask & (0b10010001ULL | 0b10010001ULL << 56)) == 0) {
+		return;
+	}
 
 	if (from == 000 || to == 000) caslingState &= 0b1101;
 	if (from == 007 || to == 007) caslingState &= 0b1110;
@@ -158,40 +166,63 @@ inline void Move::MakeMoveChangeCaslingRights(PieceType pieceType) {
 
 	if (from == 0004) caslingState &= 0b1100;
 	if (from == 0074) caslingState &= 0b0011;
-
-	metadata |= boardState.caslingStates.push(caslingState);
 }
 
 template <bool Black, bool Reversed>
-void Move::MakeMoveMoveCaslingRook() {
-	CaslingState caslingState = boardState.caslingStates.currentState();
+void Move::MakeMoveMoveCaslingRook(int to) {
 	if constexpr (Black) {
-		if (canBlackCasleKingside(caslingState)) {
-			if (from == 074 && to == 076) {
-				boardState.SetPiece<true>(Reversed? 075 : 077, piece_type::NONE);
-				boardState.SetPiece<false>(Reversed? 077 : 075, piece_type::BLACK_ROOK);
-			}
+		constexpr Location kingRookFrom = 077;
+		constexpr Location kingRookTo = 075;
+		constexpr Location queenRookFrom = 070;
+		constexpr Location queenRookTo = 073;
+		constexpr BoardSet kingXorMask = (1ULL << kingRookFrom) | (1ULL << kingRookTo);
+		constexpr BoardSet queenXorMask = (1ULL << queenRookFrom) | (1ULL << queenRookTo);
+
+		Location clear;
+		Location place;
+		BoardSet xorMask;
+		if (to == 076) {
+			clear = (!Reversed)? kingRookFrom : kingRookTo;
+			place = (!Reversed)? kingRookTo : kingRookFrom;
+			xorMask = kingXorMask;
 		}
-		if (canBlackCasleQueenside(caslingState)) {
-			if (from == 074 && to == 072) {
-				boardState.SetPiece<true>(Reversed? 073 : 070, piece_type::NONE);
-				boardState.SetPiece<false>(Reversed? 070 : 073, piece_type::BLACK_ROOK);
-			}
+		else {
+			clear = (!Reversed)? queenRookFrom : queenRookTo;
+			place = (!Reversed)? queenRookTo : queenRookFrom;
+			xorMask = queenXorMask;
 		}
+
+		boardState.black.all ^= xorMask;
+		boardState.black.rook ^= xorMask;
+		boardState.squares[clear] = piece_type::NONE;
+		boardState.squares[place] = piece_type::BLACK_ROOK;
 	}
 	else {
-		if (canWhiteCasleKingside(caslingState)) {
-			if (from == 004 && to == 006) {
-				boardState.SetPiece<true>(Reversed? 005 : 007, piece_type::NONE);
-				boardState.SetPiece<false>(Reversed? 007 : 005, piece_type::WHITE_ROOK);
-			}
+		constexpr Location kingRookFrom = 007;
+		constexpr Location kingRookTo = 005;
+		constexpr Location queenRookFrom = 000;
+		constexpr Location queenRookTo = 003;
+		constexpr BoardSet kingXorMask = (1ULL << kingRookFrom) | (1ULL << kingRookTo);
+		constexpr BoardSet queenXorMask = (1ULL << queenRookFrom) | (1ULL << queenRookTo);
+
+		Location clear;
+		Location place;
+		BoardSet xorMask;
+		if (to == 006) {
+			clear = (!Reversed)? kingRookFrom : kingRookTo;
+			place = (!Reversed)? kingRookTo : kingRookFrom;
+			xorMask = kingXorMask;
 		}
-		if (canWhiteCasleQueenside(caslingState)) {
-			if (from == 004 && to == 002) {
-				boardState.SetPiece<true>(Reversed? 003 : 000, piece_type::NONE);
-				boardState.SetPiece<false>(Reversed? 000 : 003, piece_type::WHITE_ROOK);
-			}
+		else {
+			clear = (!Reversed)? queenRookFrom : queenRookTo;
+			place = (!Reversed)? queenRookTo : queenRookFrom;
+			xorMask = queenXorMask;
 		}
+
+		boardState.white.all ^= xorMask;
+		boardState.white.rook ^= xorMask;
+		boardState.squares[clear] = piece_type::NONE;
+		boardState.squares[place] = piece_type::WHITE_ROOK;
 	}
 }
 
@@ -236,16 +267,16 @@ BoardSet knightMoveSet(BoardSet pieceSet) {
 }
 // includes allPieces/blockingPieces
 __forceinline
-BoardSet __RayMoveSet(BoardSet ray, BoardSet highBits, BoardSet lowBits, BoardSet allPieces) {
-	BoardSet highRayPieces = highBits & ray & allPieces;
-	BoardSet lowRayLastPiece = onlyLastBit(lowBits & ray & allPieces);
-	BoardSet highRay = belowLS1B<true>(highRayPieces) & highBits & ray;
-	BoardSet lowRay = ((lowRayLastPiece != 0)? ~(lowRayLastPiece - 1) : allOccupiedSet) & lowBits & ray;
+BoardSet __RayMoveSet(BoardSet highBits, BoardSet lowBits, BoardSet allPieces) {
+	BoardSet highRayPieces = highBits & allPieces;
+	BoardSet lowRayLastPiece = onlyLastBit(lowBits & allPieces);
+	BoardSet highRay = belowLS1B<true>(highRayPieces) & highBits;
+	BoardSet lowRay = (lowRayLastPiece == 0)? lowBits : ~(lowRayLastPiece - 1) & lowBits;
 
 	return highRay | lowRay;
 }
 template <bool Laterals, bool Diagonals>
-__forceinline
+__inline
 BoardSet RaysMoveSet(BoardSet pieceSet, BoardSet blockingPieces) {
 	BoardSet moves = 0;
 	while (pieceSet != 0) {
@@ -255,12 +286,12 @@ BoardSet RaysMoveSet(BoardSet pieceSet, BoardSet blockingPieces) {
 		const BoardSet *rays = pinRays[location];
 
 		if constexpr (Laterals) {
-			moves |= __RayMoveSet(rays[1], highBits, lowBits, blockingPieces);
-			moves |= __RayMoveSet(rays[3], highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet(highBits & rays[1], lowBits & rays[1], blockingPieces);
+			moves |= __RayMoveSet(highBits & rays[3], lowBits & rays[3], blockingPieces);
 		}
 		if constexpr (Diagonals) {
-			moves |= __RayMoveSet(rays[0], highBits, lowBits, blockingPieces);
-			moves |= __RayMoveSet(rays[2], highBits, lowBits, blockingPieces);
+			moves |= __RayMoveSet(highBits & rays[0], lowBits & rays[0], blockingPieces);
+			moves |= __RayMoveSet(highBits & rays[2], lowBits & rays[2], blockingPieces);
 		}
 
 	}
@@ -307,27 +338,25 @@ void UpdateAttackAndDefendSets() {
 	PieceSets *pieceSets;
 	PieceSets *attackSets;
 	PieceSets *defendSets;
-	BoardSet enemyKing;
+	BoardSet &enemyKing = Black? boardState.white.king : boardState.black.king;
 	if constexpr (Black) {
 		pieceSets = &boardState.black;
 		attackSets = &boardState.blackAttacks;
 		defendSets = &boardState.blackDefends;
-		enemyKing = boardState.white.king;
 	}
 	else {
 		pieceSets = &boardState.white;
 		attackSets = &boardState.whiteAttacks;
 		defendSets = &boardState.whiteDefends;
-		enemyKing = boardState.black.king;
 	}
+	defendSets->king = attackSets->king = kingMoveSet(pieceSets->king);
 	attackSets->pawn = pawnAttackSet<Black>(pieceSets->pawn);
-	defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
 	defendSets->knight = attackSets->knight = knightMoveSet(pieceSets->knight);
+	defendSets->pawn = pawnMoveSet<Black>(pieceSets->pawn);
 	BoardSet blockingPieces = (boardState.black.all | boardState.white.all) & ~enemyKing;
 	defendSets->bishop = attackSets->bishop = RaysMoveSet<false, true>(pieceSets->bishop, blockingPieces);
 	defendSets->rook = attackSets->rook = RaysMoveSet<true, false>(pieceSets->rook, blockingPieces);
 	defendSets->queen = attackSets->queen = RaysMoveSet<true, true>(pieceSets->queen, blockingPieces);
-	defendSets->king = attackSets->king = kingMoveSet(pieceSets->king);
 
 	attackSets->all = attackSets->pawn | attackSets->knight | attackSets->bishop | attackSets->rook | attackSets->queen | attackSets->king;
 	defendSets->all = defendSets->pawn | defendSets->knight | defendSets->bishop | defendSets->rook | defendSets->queen | defendSets->king;
@@ -427,90 +456,165 @@ void CheckUncheckedChecks() {
 template <bool Black>
 void Move::Make() {
 	movesPlayed.push_back(*this);
-	PieceType pieceType = boardState.squares[from];
 
-	boardState.SetPiece<true>(from, piece_type::NONE);
+	int from = From();
+	int to = To();
 
-	PieceType capturedPiece = boardState.squares[to];
-	if (uncoloredType(pieceType) == piece_type::PAWN && boardState.enPassantTargets.current() == fileOf(to) && isOccupied(enPassantLocations<Black>, from)) {
-		metadata |= EnPassantCapture << 4;
-		boardState.SetPiece<true>(to - forward<Black>, piece_type::NONE);
-	}
-	else if (capturedPiece != piece_type::NONE) {
-		captures++;
-		metadata |= uncoloredType(capturedPiece) << 4;
-		boardState.SetPiece<true>(to, piece_type::NONE);
-	}
+	PieceType movingPiece = boardState.squares[from];
+	PieceType captured = boardState.squares[to];
 
-	PieceType promotionPiece = PromotionPiece();
-	if (promotionPiece != piece_type::NONE) {
-		promotionPiece |= pieceType & 0b1000;
-		boardState.SetPiece<false>(to, promotionPiece);
-	}
-	else {
-		boardState.SetPiece<false>(to, pieceType);
-	}
-	File enPassantTarget = NullLocation;
-	if (uncoloredType(pieceType) == piece_type::PAWN) {
-		Rank rankDifference = rankOf(to) - rankOf(from);
-		if (rankDifference == ((u8) -2) || rankDifference == 2) {
-			enPassantTarget = fileOf(to);
+	PieceSets &friendPieceSets = Black? boardState.black : boardState.white;
+	PieceSets &enemyPieceSets = Black? boardState.white : boardState.black;
+
+	BoardSet &movingPieceSet = boardState.pieces[movingPiece];
+
+	BoardSet toMask = 1ULL << to;
+	BoardSet fromMask = 1ULL << from;
+	BoardSet toAndFromMask = toMask | fromMask;
+
+	MoveTypes moveType = MoveType();
+
+	boardState.state.enPassantFile = NullLocation;
+	boardState.state.captured = piece_type::NONE;
+
+	switch (moveType) {
+	case NORMAL:
+		// capture
+		boardState.pieces[captured] &= ~toMask;
+		enemyPieceSets.all &= ~toMask;
+		boardState.state.captured = captured;
+		// move
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= toAndFromMask;
+		boardState.squares[from] = piece_type::NONE;
+		boardState.squares[to] = movingPiece;
+
+		if (movingPiece == piece_type::COLORED_PAWN<Black>) {
+			if (to - from == (Black? -16 : 16)) {
+				boardState.state.enPassantFile = fileOf(to);
+			}
 		}
+		
+		MakeMoveChangeCaslingRights(toAndFromMask, from, to);
+		break;
+	case EN_PASSANT:
+		// capture
+		enemyPieceSets.pawn &= ~(Black? toMask << 8 : toMask >> 8);
+		enemyPieceSets.all &= ~(Black? toMask << 8 : toMask >> 8);
+		boardState.squares[Black? to + 8 : to - 8] = piece_type::NONE;
+		// move
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= toAndFromMask;
+		boardState.squares[from] = piece_type::NONE;
+		boardState.squares[to] = movingPiece;
+		break;
+	case CASLING:
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= toAndFromMask;
+		boardState.squares[from] = piece_type::NONE;
+		boardState.squares[to] = movingPiece;
+		MakeMoveMoveCaslingRook<Black, false>(to);
+
+		boardState.state.casling &= Black? 0b0011 : 0b1100;
+		break;
+	case PROMOTION:
+		// capture
+		boardState.pieces[captured] &= ~toMask;
+		enemyPieceSets.all &= ~toMask;
+		boardState.state.captured = captured;
+		// remove pawn
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= fromMask;
+		boardState.squares[from] = piece_type::NONE;
+		// promotion
+		PieceType promotionPiece = PromotionPiece();
+		promotionPiece |= piece_type::COLOR<Black>;
+		boardState.pieces[promotionPiece] ^= toMask;
+		boardState.squares[to] = promotionPiece;
+
+		MakeMoveChangeCaslingRights(toAndFromMask, from, to);
+		break;
 	}
-	u8 mask = boardState.enPassantTargets.push(enPassantTarget);
-	metadata = metadata | mask;
 
-	MakeMoveMoveCaslingRook<Black, false>();
-
-	MakeMoveChangeCaslingRights(pieceType);
+	if constexpr (_Strict_) {
+		if (boardState.black.king == 0 || boardState.white.king == 0) throw std::invalid_argument("king captured");
+	}
 }
 template <bool Black>
-void Move::Unmake() {
+void Move::Unmake(State prevState) {
 	movesPlayed.pop_back();
-	PieceType pieceType = boardState.squares[to];
-	PieceType pieceColor = pieceType & 0b1000;
 
-	PieceType capturedPiece = CapturedPiece();
-	if (capturedPiece == EnPassantCapture) {
-		if constexpr (Black) {
-			boardState.SetPiece<false>(to - forward<Black>, piece_type::WHITE_PAWN);
-			boardState.SetPiece<true>(to, piece_type::NONE);
-		}
-		else {
-			boardState.SetPiece<false>(to - forward<Black>, piece_type::BLACK_PAWN);
-			boardState.SetPiece<true>(to, piece_type::NONE);
-		}
-	}
-	else if (capturedPiece == piece_type::NONE) {
-		boardState.SetPiece<true>(to, piece_type::NONE);
-	}
-	else {
-		boardState.SetPiece<true>(to, piece_type::NONE);
-		boardState.SetPiece<false>(to, capturedPiece | (~pieceColor & 0b1000));
-	}
+	int from = From();
+	int to = To();
 
-	PieceType promotionPiece = PromotionPiece();
-	if (promotionPiece != piece_type::NONE) {
-		boardState.SetPiece<false>(from, piece_type::PAWN | pieceColor);
-	}
-	else {
-		boardState.SetPiece<false>(from, pieceType);
-	}
-	if (ChangedEnPassantTarget()) {
-		boardState.enPassantTargets.pop();
-	}
+	PieceType movingPiece = boardState.squares[to];
+	PieceType movingPiece_u = uncoloredType(movingPiece);
 
-	if (ChangedCaslingRights()) {
-		boardState.caslingStates.pop();
+	PieceSets &friendPieceSets = Black? boardState.black : boardState.white;
+	PieceSets &enemyPieceSets = Black? boardState.white : boardState.black;
+
+	BoardSet &movingPieceSet = friendPieceSets.pieces[movingPiece_u];
+
+	BoardSet toMask = 1ULL << to;
+	BoardSet fromMask = 1ULL << from;
+	BoardSet toAndFromMask = toMask | fromMask;
+
+	MoveTypes moveType = MoveType();
+	PieceType captured = boardState.state.captured;
+
+	boardState.state = prevState;
+
+	switch (moveType) {
+	case NORMAL:
+		// capture
+		boardState.pieces[captured] |= toMask;
+		enemyPieceSets.all |= toMask * (captured > 0);
+		boardState.squares[to] = captured;
+		// move
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= toAndFromMask;
+		boardState.squares[from] = movingPiece;
+		break;
+	case EN_PASSANT:
+		// capture
+		enemyPieceSets.pawn |= Black? toMask << 8 : toMask >> 8;
+		enemyPieceSets.all |= Black? toMask << 8 : toMask >> 8;
+		boardState.squares[Black? to + 8 : to - 8] = piece_type::COLORED_PAWN<!Black>;
+		// move
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= toAndFromMask;
+		boardState.squares[to] = piece_type::NONE;
+		boardState.squares[from] = movingPiece;
+		break;
+	case CASLING:
+		friendPieceSets.all ^= toAndFromMask;
+		movingPieceSet ^= toAndFromMask;
+		boardState.squares[to] = piece_type::NONE;
+		boardState.squares[from] = movingPiece;
+		MakeMoveMoveCaslingRook<Black, true>(to);
+		break;
+	case PROMOTION:
+		// capture
+		boardState.pieces[captured] |= toMask;
+		enemyPieceSets.all |= toMask * (captured > 0);
+		boardState.squares[to] = captured;
+		// remove pawn
+		friendPieceSets.all ^= toAndFromMask;
+		friendPieceSets.pawn ^= fromMask;
+		boardState.squares[from] = piece_type::COLORED_PAWN<Black>;
+		// promotion
+		PieceType promotionPiece = PromotionPiece();
+		promotionPiece |= piece_type::COLOR<Black>;
+		movingPieceSet ^= toMask;
+		break;
 	}
-	MakeMoveMoveCaslingRook<Black, true>();
 }
 
 __forceinline
 void AddAllMoves(u8 start, BoardSet moveSet, Move move) {
 	for (u8 numberOfMoves = 0; moveSet != 0; numberOfMoves++) {
 		Location location = extractFirstOccupied(&moveSet);
-		move.to = location;
+		move.toAndPromotion = location;
 		moves[start + numberOfMoves] = move;
 	}
 }
@@ -528,7 +632,7 @@ u8 generateKingMoves(u8 start) {
 		invalidLocations = boardState.white.all | boardState.blackAttacks.all;
 	}
 	BoardSet kingMoveLocations = kingMoves[location] & ~invalidLocations;
-	AddAllMoves(start, kingMoveLocations, { location, 0, piece_type::NONE });
+	AddAllMoves(start, kingMoveLocations, Move::Make(location, 0));
 	return numberOfOccupancies(kingMoveLocations);
 }
 
@@ -552,7 +656,7 @@ u8 generateKnightMoves(u8 start) {
 	while (knightSet != 0) {
 		Location location = extractFirstOccupied(&knightSet);
 		BoardSet knightMoveLocations = knightMoves[location] & ~friendlyPieces;
-		AddAllMoves(start + numberOfMoves, knightMoveLocations, { location, 0, piece_type::NONE });
+		AddAllMoves(start + numberOfMoves, knightMoveLocations, Move::Make(location, 0));
 		numberOfMoves += numberOfOccupancies(knightMoveLocations);
 	}
 	return numberOfMoves;
@@ -560,10 +664,10 @@ u8 generateKnightMoves(u8 start) {
 
 __forceinline
 void generatePawnPromotionMoves(u8 start, Location from, Location to) {
-	moves[start + 0] = { from, to, piece_type::QUEEN };
-	moves[start + 1] = { from, to, piece_type::ROOK };
-	moves[start + 2] = { from, to, piece_type::BISHOP };
-	moves[start + 3] = { from, to, piece_type::KNIGHT };
+	moves[start + 0] = Move::Make<PROMOTION, piece_type::QUEEN>(from, to);
+	moves[start + 1] = Move::Make<PROMOTION, piece_type::ROOK>(from, to);
+	moves[start + 2] = Move::Make<PROMOTION, piece_type::BISHOP>(from, to);
+	moves[start + 3] = Move::Make<PROMOTION, piece_type::KNIGHT>(from, to);
 }
 
 template <bool In_Promotion_Locations>
@@ -574,7 +678,7 @@ u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) 
 		return 4;
 	}
 	else {
-		moves[start + 0] = { from, to, piece_type::NONE };
+		moves[start] = Move::Make(from, to);
 		return 1;
 	}
 }
@@ -586,7 +690,7 @@ u8 generatePawnMovesWithPossiblePromotion(u8 start, Location from, Location to) 
 		return 4;
 	}
 	else {
-		moves[start + 0] = { from, to, piece_type::NONE };
+		moves[start] = Move::Make(from, to);
 		return 1;
 	}
 }
@@ -633,14 +737,14 @@ u8 generatePawnMoves(u8 start, BoardSet pawnSet, BoardSet allPieces) {
 		constexpr Location doubleBackwards = (u8) (2*backwards);
 		Location target = extractFirstOccupied(&twoMovers);
 		Location from = (u8) (target + doubleBackwards);
-		moves[start + numberOfMoves] = { from, target, piece_type::NONE };
+		moves[start + numberOfMoves] = Move::Make(from, target);
 		numberOfMoves += 1;
 	}
 	// one movers
 	while (oneMovers != 0) {
 		Location target = extractFirstOccupied(&oneMovers);
 		Location from = (u8) (target + backwards);
-		moves[start + numberOfMoves] = { from, target, piece_type::NONE };
+		moves[start + numberOfMoves] = Move::Make(from, target);
 		numberOfMoves += 1;
 	}
 	return numberOfMoves;
@@ -689,28 +793,27 @@ u8 addPawnAttacks(u8 start, BoardSet attacks) {
 }
 template <bool Black>
 u8 generateEnPassants(u8 start, BoardSet negativeAttacks, BoardSet positiveAttacks) {
-	File enPassantFile = boardState.enPassantTargets.current();
+	File enPassantFile = boardState.state.enPassantFile;
 	if (enPassantFile == NullLocation) return 0;
 	if constexpr (Black) {
 		// make sure that negative attacks is going torwards the A file
 		std::swap(negativeAttacks, positiveAttacks);
 	}
 	Location targetLocation = (Location) (((Black)? 2*8 : 5*8) + enPassantFile);
-	BoardSet target = 1ULL << targetLocation;
 
 	u8 numberOfMoves = 0;
 
 	if (isOccupied(negativeAttacks, targetLocation)) {
 		Location from = (Location) (targetLocation - forward<Black> +1);
 		if (!isEnPassantPinned<Black>(from)) {
-			moves[start + numberOfMoves] = { from, targetLocation, piece_type::NONE };
+			moves[start + numberOfMoves] = Move::Make<EN_PASSANT>(from, targetLocation);
 			numberOfMoves++;
 		}
 	}
 	if (isOccupied(positiveAttacks, targetLocation)) {
 		Location from = (Location) (targetLocation - forward<Black> -1);
 		if (!isEnPassantPinned<Black>(from)) {
-			moves[start + numberOfMoves] = { from, targetLocation, piece_type::NONE };
+			moves[start + numberOfMoves] = Move::Make<EN_PASSANT>(from, targetLocation);
 			numberOfMoves++;
 		}
 	}
@@ -775,27 +878,26 @@ u8 generatePawnMovesAndAttacks(u8 start) {
 	return numberOfMoves;
 }
 
-template <Location File_Direction, Location Rank_Direction>
+template <int File_Direction, int Rank_Direction>
 bool IsOnEdge(Location location) {
-	if constexpr (File_Direction == (Location) -1) {
+	if constexpr (File_Direction == -1) {
 		if (fileOf(location) == 0) return true;
 	}
-	else if constexpr (File_Direction == (Location) 1) {
+	else if constexpr (File_Direction == 1) {
 		if (fileOf(location) == 7) return true;
 	}
-	if constexpr (Rank_Direction == (Location) -1) {
+	if constexpr (Rank_Direction == -1) {
 		if (rankOf(location) == 0) return true;
 	}
-	else if constexpr (Rank_Direction == (Location) 1) {
+	else if constexpr (Rank_Direction == 1) {
 		if (rankOf(location) == 7) return true;
 	}
 	return false;
 }
 
-template <Location File_Direction, Location Rank_Direction>
+template <int File_Direction, int Rank_Direction>
 u8 AddAllMovesInDirection(u8 start, Location location, BoardSet enemyPieces, BoardSet friendlyPieces) {
-	#pragma warning(suppress: 4310)
-	constexpr Location direction = (Location) (8*Rank_Direction + File_Direction);
+	constexpr int direction = 8*Rank_Direction + File_Direction;
 
 	Location target = location;
 	u8 numberOfMoves = 0;
@@ -804,7 +906,7 @@ u8 AddAllMovesInDirection(u8 start, Location location, BoardSet enemyPieces, Boa
 
 		if (isOccupied(friendlyPieces, target)) break;
 
-		moves[start + numberOfMoves] = { location, target, piece_type::NONE };
+		moves[start + numberOfMoves] = Move::Make(location, target);
 		numberOfMoves++;
 
 		if (isOccupied(enemyPieces, target)) break;
@@ -882,6 +984,7 @@ u8 generateBishopLikeMoves(u8 start) {
 }
 template <bool Black>
 u8 generateCaslingMoves(u8 start) {
+	CaslingState state = boardState.state.casling;
 	if constexpr (Black) {
 		u8 numberOfMoves = 0;
 		constexpr BoardSet casleKingsideMask = 0b01100000ULL << 56;
@@ -889,15 +992,15 @@ u8 generateCaslingMoves(u8 start) {
 		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL << 56;
 		BoardSet attacked = boardState.whiteAttacks.all;
 		BoardSet pieces = boardState.black.all | boardState.white.all;
-		if (canBlackCasleKingside(boardState.caslingStates.currentState())) {
+		if (canBlackCasleKingside(state)) {
 			if (((attacked | pieces) & casleKingsideMask) == 0) {
-				moves[start + numberOfMoves] = { 074, 076, 0 };
+				moves[start + numberOfMoves] = Move::Make<CASLING>(074, 076);
 				numberOfMoves++;
 			}
 		}
-		if (canBlackCasleQueenside(boardState.caslingStates.currentState())) {
+		if (canBlackCasleQueenside(state)) {
 			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
-				moves[start + numberOfMoves] = { 074, 072, 0 };
+				moves[start + numberOfMoves] = Move::Make<CASLING>(074, 072);
 				numberOfMoves++;
 			}
 		}
@@ -910,15 +1013,15 @@ u8 generateCaslingMoves(u8 start) {
 		constexpr BoardSet casleQueensidePiecesMask = 0b00001110ULL;
 		BoardSet attacked = boardState.blackAttacks.all;
 		BoardSet pieces = boardState.white.all | boardState.black.all;
-		if (canWhiteCasleKingside(boardState.caslingStates.currentState())) {
+		if (canWhiteCasleKingside(state)) {
 			if (((attacked | pieces) & casleKingsideMask) == 0) {
-				moves[start + numberOfMoves] = { 004, 006, 0 };
+				moves[start + numberOfMoves] = Move::Make<CASLING>(004, 006);
 				numberOfMoves++;
 			}
 		}
-		if (canWhiteCasleQueenside(boardState.caslingStates.currentState())) {
+		if (canWhiteCasleQueenside(state)) {
 			if (((pieces & casleQueensidePiecesMask) | (attacked & casleQueensideMask)) == 0) {
-				moves[start + numberOfMoves] = { 004, 002, 0 };
+				moves[start + numberOfMoves] = Move::Make<CASLING>(004, 002);
 				numberOfMoves++;
 			}
 		}
@@ -986,7 +1089,7 @@ u8 GenerateBlockingMoves(u8 start) {
 	/* pawn captures */ {
 		Location checkLocation = firstOccupied(checkSource);
 
-		File enPassantFile = boardState.enPassantTargets.current();
+		File enPassantFile = boardState.state.enPassantFile;
 		if (enPassantFile != NullLocation) {
 			BoardSet enemyPawns = Black? boardState.white.pawn : boardState.black.pawn;
 			bool isPawnCheck = (enemyPawns & checkSource) != 0;
@@ -996,7 +1099,7 @@ u8 GenerateBlockingMoves(u8 start) {
 				BoardSet pawnCaptureLocations = pieceSets.pawn & enPassantLocations<Black> & enPassantingFiles;
 				while (pawnCaptureLocations != 0) {
 					Location location = extractFirstOccupied(&pawnCaptureLocations);
-					moves[start + numberOfMoves] = { location, (Location) (checkLocation + forward<Black>), piece_type::NONE };
+					moves[start + numberOfMoves] = Move::Make<EN_PASSANT>(location, (Location) (checkLocation + forward<Black>));
 					numberOfMoves++;
 				}
 			}
@@ -1039,7 +1142,7 @@ u8 GenerateBlockingMoves(u8 start) {
 			BoardSet knightBlocks = knightMoves[currentBlockLocation] & pieceSets.knight;
 			while (knightBlocks != 0) {
 				Location knightLocation = extractFirstOccupied(&knightBlocks);
-				moves[start + numberOfMoves] = { knightLocation, currentBlockLocation, 0 };
+				moves[start + numberOfMoves] = Move::Make(knightLocation, currentBlockLocation);
 				numberOfMoves++;
 			}
 		}
@@ -1048,7 +1151,7 @@ u8 GenerateBlockingMoves(u8 start) {
 			blockingPieces &= ~checkSource;
 			while (blockingPieces != 0) {
 				Location location = extractFirstOccupied(&blockingPieces);
-				moves[start + numberOfMoves] = { location, currentBlockLocation, 0 };
+				moves[start + numberOfMoves] = Move::Make(location, currentBlockLocation);
 				numberOfMoves++;
 			}
 		}

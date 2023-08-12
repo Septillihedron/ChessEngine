@@ -9,12 +9,13 @@ export class EngineAPI {
 	startfen = "startpos";
 	moves = "";
 	color = "w";
+	firstMove;
 
 	constructor(color, fen) {
 		console.log("initiating engine");
 		this.color = color;
 		this.engineProcess = spawn("../x64/Release/ChessEngine.exe", [fen]);
-		if (color == 'b') this.engineProcess.stdin.write(color);
+		this.engineProcess.stdin.write(color);
 		this.engineProcess.stdout.on("data", data => {
 			new TextDecoder().decode(data)
 				.split("\n")
@@ -22,6 +23,18 @@ export class EngineAPI {
 				.map(line => "Engine: " + line)
 				.forEach(line => console.log(line));
 		});
+		this.firstMove = new Promise(resolve => {
+			const bestMoveFinder = data => {
+				if (data.length == 0) return;
+				let bestMove = this._getBestMove(data);
+				if (bestMove) {
+					resolve(bestMove);
+					this.engineProcess.stdout.removeListener("data", bestMoveFinder);
+					return;
+				}
+			};
+			this.engineProcess.stdout.on("data", bestMoveFinder);
+		})
 		console.log("finished initiating engine");
 	}
 	
@@ -34,17 +47,7 @@ export class EngineAPI {
 	 * @returns {Promise<string>}
 	 */
 	playFirstMove() {
-		this.engineProcess.stdin.write(this.color);
-		return new Promise(resolve => {
-			let bestMoveFinder = data => {
-				let bestMove = this._getBestMove(data);
-				if (bestMove) {
-					resolve(bestMove);
-					return;
-				}
-			};
-			this.engineProcess.stdout.on("data", bestMoveFinder);
-		})
+		return this.firstMove
 	}
 
 	addMoves(...moves) {

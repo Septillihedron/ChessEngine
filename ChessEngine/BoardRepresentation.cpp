@@ -6,29 +6,11 @@
 
 BoardState CreateBoardState() {
 
-	//BoardState boardState = {
-	//	Location enPassantTarget;
-
-	//	CaslingStateHistory caslingStates;
-
-	//	PieceSets white;
-	//	PieceSets black;
-	//	PieceSets whiteAttacks;
-	//	PieceSets blackAttacks;
-	//	PieceSets whiteDefends;
-	//	PieceSets blackDefends;
-
-	//	PieceType squares[64];
-
-	//	PinnedSets whitePinnedSets;
-	//	PinnedSets blackPinnedSets;
-
-	//	CheckData checkData;
-	//}
-
-	BoardState boardState = { { { NullLocation }, (u8) 0 }, { { AllowAllCasling }, 0 }, 0 };
+	BoardState boardState = { };
+	boardState.state = { AllowAllCasling, NullLocation, piece_type::NONE };
 	boardState.white =
 	{
+		0,
 		0b11111111ULL << 8,
 		0b01000010ULL << 0,
 		0b00100100ULL << 0,
@@ -39,6 +21,7 @@ BoardState CreateBoardState() {
 	};
 	boardState.black =
 	{
+		0,
 		0b11111111ULL << 48,
 		0b01000010ULL << 56,
 		0b00100100ULL << 56,
@@ -84,18 +67,17 @@ PieceType CharToPieceType(char c) {
 }
 
 bool CreateFromFEN(std::string fen, BoardState &boardState) {
-	EnPassantHistory enPassantTargets = { { NullLocation }, (u8) 0 };
-	CaslingStateHistory caslingStates = { { 0 }, 0 };
 	for (Location i = 0; i<64; i++) {
 		if (boardState.squares[i] != piece_type::NONE) {
 			boardState.SetPiece<true>(i, piece_type::NONE);
 		}
 	}
+	boardState.state.casling = 0b0000;
 	bool isBlackStart = 0;
 	int state = 0;
 	int rank = 7;
 	int file = 0;
-	for (int i = 0; i<fen.size(); i++) {
+	for (size_t i = 0; i<fen.size(); i++) {
 		char c = fen[i];
 		if (c == ' ') {
 			state++;
@@ -119,77 +101,15 @@ bool CreateFromFEN(std::string fen, BoardState &boardState) {
 		}
 		else if (state == 2) {
 			if (c == '-') continue;
-			if (c == 'K') caslingStates.history[0] |= 0b0001;
-			if (c == 'Q') caslingStates.history[0] |= 0b0010;
-			if (c == 'k') caslingStates.history[0] |= 0b0100;
-			if (c == 'q') caslingStates.history[0] |= 0b1000;
+			if (c == 'K') boardState.state.casling |= 0b0001;
+			if (c == 'Q') boardState.state.casling |= 0b0010;
+			if (c == 'k') boardState.state.casling |= 0b0100;
+			if (c == 'q') boardState.state.casling |= 0b1000;
 		}
 	}
-	boardState.enPassantTargets = enPassantTargets;
-	boardState.caslingStates = caslingStates;
 	UpdateAttackAndDefendSets<false>();
 	UpdateAttackAndDefendSets<true>();
 	return isBlackStart;
-}
-
-CaslingState CaslingStateHistory::currentState() {
-	return history[stackPointer];
-}
-
-ChangeCaslingMask CaslingStateHistory::push(CaslingState newState) {
-	if (newState != currentState()) {
-		stackPointer++;
-		history[stackPointer] = newState;
-		return 0b1000;
-	}
-	return 0b0000;
-}
-void CaslingStateHistory::pop() {
-	stackPointer--;
-}
-Location EnPassantHistory::current() {
-	if (stackPointer >= 33) throw std::invalid_argument("Invalid state");
-	return history[stackPointer];
-}
-u8 EnPassantHistory::push(Location newLocation) {
-	if (newLocation != current()) {
-		stackPointer++;
-		history[stackPointer] = newLocation;
-		return 0b10000000;
-	}
-	return 0b00000000;
-}
-void EnPassantHistory::pop() {
-	stackPointer--;
-}
-void CaptureStack::push(PieceType type) {
-	stackPointer++;
-	stack[stackPointer] = type;
-}
-PieceType CaptureStack::pop() {
-	PieceType type = stack[stackPointer];
-	stackPointer--;
-	return type;
-}
-
-BoardSet &BoardState::GetPieceSet(PieceType type) {
-	PieceSets &sets = isColorBlack(type)? black : white;
-	switch (uncoloredType(type)) {
-	case piece_type::PAWN:
-		return sets.pawn;
-	case piece_type::KNIGHT:
-		return sets.knight;
-	case piece_type::BISHOP:
-		return sets.bishop;
-	case piece_type::ROOK:
-		return sets.rook;
-	case piece_type::QUEEN:
-		return sets.queen;
-	case piece_type::KING:
-		return sets.king;
-	default:
-		throw std::invalid_argument("Invalid piece type");
-	}
 }
 
 std::string BoardState::GetStringRepresentation() {

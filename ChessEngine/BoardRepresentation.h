@@ -5,6 +5,7 @@
 #include <string>
 #include <iostream>
 #include <sstream>
+#include "Parameters.h"
 
 #define BoardSet uint64_t
 #define u8 uint8_t
@@ -65,6 +66,21 @@ namespace piece_type {
 	constexpr PieceType BLACK_ROOK = 014;
 	constexpr PieceType BLACK_QUEEN = 015;
 	constexpr PieceType BLACK_KING = 016;
+
+	template <bool Black>
+	constexpr PieceType COLOR = Black? BLACK : WHITE;
+	template <bool Black = false>
+	constexpr PieceType COLORED_PAWN = Black? BLACK_PAWN : WHITE_PAWN;
+	template <bool Black = false>
+	constexpr PieceType COLORED_KNIGHT = Black? BLACK_KNIGHT : WHITE_KNIGHT;
+	template <bool Black = false>
+	constexpr PieceType COLORED_BISHOP = Black? BLACK_BISHOP : WHITE_BISHOP;
+	template <bool Black = false>
+	constexpr PieceType COLORED_ROOK = Black? BLACK_ROOK : WHITE_ROOK;
+	template <bool Black = false>
+	constexpr PieceType COLORED_QUEEN = Black? BLACK_QUEEN : WHITE_QUEEN;
+	template <bool Black = false>
+	constexpr PieceType COLORED_KING = Black? BLACK_KING : WHITE_KING;
 
 	inline char PieceChar(PieceType type) {
 		switch (type) {
@@ -135,29 +151,37 @@ PieceType uncoloredType(PieceType type) {
 	return type & (u8) 7;
 }
 
-typedef struct CaslingStateHistory {
-	CaslingState history[5];
-	u8 stackPointer;
-
-	CaslingState currentState();
-	ChangeCaslingMask push(CaslingState newState);
-	void pop();
-
-	inline bool operator==(CaslingStateHistory &other) {
-		if (stackPointer != other.stackPointer) return false;
-		for (u8 i = 0; i < stackPointer; i++) if (history[i] != other.history[i]) return false;
-		return true;
+typedef struct State {
+	union {
+		struct {
+			CaslingState casling;
+			File enPassantFile;
+			PieceType captured;
+			u8 padding;
+		};
+		uint32_t state;
+	};
+	
+	inline bool operator==(State &other) {
+		return state == other.state;
 	}
-} CaslingStateHistory;
+} State;
 
 typedef struct PieceSets {
-	BoardSet pawn;
-	BoardSet knight;
-	BoardSet bishop;
-	BoardSet rook;
-	BoardSet queen;
-	BoardSet king;
-	BoardSet all;
+	union {
+		struct {
+			BoardSet none;
+			BoardSet pawn;
+			BoardSet knight;
+			BoardSet bishop;
+			BoardSet rook;
+			BoardSet queen;
+			BoardSet king;
+			BoardSet all;
+		};
+		BoardSet pieces[8];
+	};
+	
 
 	inline bool operator==(PieceSets &other) {
 		if (pawn != other.pawn) return false;
@@ -212,55 +236,42 @@ typedef struct CheckData {
 		return true;
 	}
 } CheckData;
-typedef struct EnPassantHistory {
-	File history[33];
-	u8 stackPointer;
-
-	File current();
-	u8 push(File newFile);
-	void pop();
-
-	inline bool operator==(EnPassantHistory &other) {
-		if (stackPointer != other.stackPointer) return false;
-		for (u8 i = 0; i <= stackPointer; i++) {
-			if (history[i] != other.history[i]) return false;
-		}
-		return true;
-	}
-} EnPassantHistory;
-typedef struct CaptureStack {
-	PieceType stack[33];
-	u8 stackPointer = (u8) -1;
-
-	void push(PieceType type);
-	PieceType pop();
-	inline bool operator==(CaptureStack &other) {
-		if (stackPointer != other.stackPointer) return false;
-		for (u8 i = 0; i <= stackPointer; i++) {
-			if (stack[i] != other.stack[i]) return false;
-		}
-		return true;
-	}
-} CaptureStack;
 
 typedef struct BoardState {
 
-	EnPassantHistory enPassantTargets;
-
-	CaslingStateHistory caslingStates;
-
-	PieceSets white;
-	PieceSets black;
+	State state;
+	
+	union {
+		struct {
+			PieceSets white;
+			PieceSets black;
+		};
+		BoardSet pieces[16];
+	};
 	PieceSets whiteAttacks;
 	PieceSets blackAttacks;
 	PieceSets whiteDefends;
 	PieceSets blackDefends;
 
-	BoardSet &GetPieceSet(PieceType type);
-
 	PieceType squares[64];
 
+	PinnedSets whitePinnedSets;
+	PinnedSets blackPinnedSets;
+	CheckData checkData;
+
+	__forceinline void ClearLocation(Location location, PieceSets &sets, BoardSet &set) {
+		setBit<0>(&set, location);
+		setBit<0>(&sets.all, location);
+		squares[location] = piece_type::NONE;
+	}
+	template <PieceType type>
+	__forceinline void SetLocation(Location location, PieceSets &sets, BoardSet &set) {
+		setBit<1>(&set, location);
+		setBit<1>(&sets.all, location);
+		squares[location] = type;
+	}
 	template <bool ClearLocation>
+	__forceinline
 	void SetPiece(Location location, PieceType type) {
 		PieceType originalType;
 		if constexpr (ClearLocation) {
@@ -270,7 +281,7 @@ typedef struct BoardState {
 			originalType = type;
 		}
 		PieceSets &sets = isColorBlack(originalType)? black : white;
-		BoardSet &set = GetPieceSet(originalType);
+		BoardSet &set = sets.pieces[uncoloredType(originalType)];
 
 		setBit<!ClearLocation>(&set, location);
 		setBit<!ClearLocation>(&sets.all, location);
@@ -283,8 +294,6 @@ typedef struct BoardState {
 		}
 	}
 
-	PinnedSets whitePinnedSets;
-	PinnedSets blackPinnedSets;
 
 	template<bool Black>
 	PinnedSets &GetPinnedSets() {
@@ -296,29 +305,25 @@ typedef struct BoardState {
 		}
 	}
 
-	CheckData checkData;
+
+	__inline void RemoveHistory() {
+		
+	}
 
 	inline bool operator==(BoardState &other) {
-		if (enPassantTargets != other.enPassantTargets) return false;
-		if (caslingStates != caslingStates) return false;
-		if (white != white) return false;
-		if (black != black) return false;
-		if (whiteAttacks != whiteAttacks) return false;
-		if (blackAttacks != blackAttacks) return false;
-		if (whiteDefends != whiteDefends) return false;
-		if (blackDefends != blackDefends) return false;
+		if (state != other.state) return false;
+		if (white != other.white) return false;
+		if (black != other.black) return false;
 		for (int i = 0; i<64; i++) if (squares[i] != other.squares[i]) return false;
-		if (whitePinnedSets != whitePinnedSets) return false;
-		if (blackPinnedSets != blackPinnedSets) return false;
-		if (checkData != checkData) return false;
 		return true;
 	}
 
 	inline std::string Difference(BoardState &other) {
 		std::stringstream difference;
+		if (state != other.state) difference << "state\n";
 		for (Location i = 0; i<64; i++) {
 			if (squares[i] != other.squares[i]) {
-				difference << "square(" << fileOf(i) + 'A' << ", " << (int) rankOf(i) + 1 << ")\n";
+				difference << "square " << (char) (fileOf(i) + 'a') << (char) (rankOf(i) + '1') << "\n";
 			}
 		}
 		if (white != other.white) difference << "white(" << white.Difference(other.white) << ")\n";
@@ -330,6 +335,9 @@ typedef struct BoardState {
 
 } BoardState;
 bool CreateFromFEN(std::string fen, BoardState &boardState);
+
+constexpr size_t a = sizeof(BoardState);
+constexpr size_t b = 6*sizeof(PieceSets) + 64 + 2*sizeof(PinnedSets) + sizeof(CheckData);
 
 extern BoardState boardState;
 

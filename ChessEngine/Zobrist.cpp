@@ -1,7 +1,4 @@
-
-#include <stdint.h>
-
-typedef uint64_t Hash;
+#include "Zobrist.h"
 
 Hash pieceHashes[12][64] = {
 

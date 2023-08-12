@@ -70,7 +70,8 @@ async function startEngine(event) {
 	let url = `${endPoint}/bot/game/stream/${gameId}`;
 	let moveStream = new NdjsonStream(await fetchRetry(url, { headers }));
 
-	if (game.color[0] == 'w') await makeMove(gameId, await engine.playFirstMove())
+	await makeMove(gameId, await engine.playFirstMove())
+	console.log("played first move")
 	
 	while (true) {
 		let moveEvent = await moveStream.read();

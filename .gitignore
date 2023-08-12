@@ -2,3 +2,5 @@
 **/x64/*
 **/node_modules/*
 **/package-lock.json
+LichessAPI/log*.txt
+profilings/*.diagsession
