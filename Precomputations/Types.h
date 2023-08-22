@@ -15,5 +15,5 @@ inline std::string BoardSetToString(BoardSet x) {
 }
 
 inline std::string HashToString(Hash x) {
-	return std::format("0x{:08x}ULL", x);
+	return std::format("0x{:08x}U", x);
 }

@@ -29,15 +29,67 @@ void LowAndHighBits() {
 void Hashes() {
     std::mt19937 gen(0);
     std::uniform_int_distribution<Hash> random(INT32_MIN, INT32_MAX);
-    std::cout << "{\n";
-    for (int pieceType = 0; pieceType<12; pieceType++) {
-        std::cout << "  {";
-        for (int loc = 0; loc<64; loc++) {
-            if (loc & 7 == 0) std::cout << "\n    ";
-            Hash hash = random(gen);
-            std::cout << HashToString(hash) << ", ";
+
+    Hash colorHash = random(gen);
+
+    Hash caslingHashes[16];
+
+    for (int state = 0; state<16; state++) {
+        genCaslingHash:
+        Hash hash = random(gen);
+        if (hash == 0) goto genCaslingHash;
+        if (hash == colorHash) goto genCaslingHash;
+        for (int state = 0; state<16; state++) {
+            if (hash == caslingHashes[state]) goto genCaslingHash;
         }
-        std::cout << "  }, \n";
+        caslingHashes[state] = hash;
+    }
+    
+    Hash hashes[12][64];
+
+    for (int pieceType = 0; pieceType<12; pieceType++) {
+        for (int loc = 0; loc<64; loc++) {
+            genHash:
+            Hash hash = random(gen);
+            if (hash == 0) goto genHash;
+            if (hash == colorHash) goto genHash;
+            for (int state = 0; state<16; state++) {
+                if (hash == caslingHashes[state]) goto genHash;
+            }
+            for (int pieceType = 0; pieceType<12; pieceType++) {
+                for (int loc = 0; loc<64; loc++) {
+                    if (hash == hashes[pieceType][loc]) goto genHash;
+                }
+            }
+            hashes[pieceType][loc] = hash;
+        }
+    }
+
+    std::cout << "#include \"Zobrist.h\"\n";
+
+    std::cout << "\n";
+
+    std::cout << "Hash colorHash = " << HashToString(colorHash) << ";\n\n";
+
+    std::cout << "Hash caslingHashes[16] = {\n";
+    std::cout << "    ";
+    for (int state = 0; state<16; state++) {
+        std::cout << HashToString(caslingHashes[state]) << ", ";
+        if (state == 15) std::cout << "\n";
+    }
+    std::cout << "};\n";
+
+    std::cout << "\n";
+
+    std::cout << "Hash pieceHashes[12][64] = {\n";
+    for (int pieceType = 0; pieceType<12; pieceType++) {
+        std::cout << "    {";
+        for (int loc = 0; loc<64; loc++) {
+            if (loc % 8 == 0) std::cout << "\n        ";
+            std::cout << HashToString(hashes[pieceType][loc]) << ", ";
+            if (loc == 63) std::cout << "\n";
+        }
+        std::cout << "    }, \n";
     }
     std::cout << "};\n";
 }

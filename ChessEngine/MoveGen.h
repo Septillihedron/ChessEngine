@@ -7,14 +7,7 @@
 #include "BoardRepresentation.h"
 #include "MoveSets.h"
 
-// 00TTTPPP
-// T = move type
-// P = promotion piece
-typedef u8 MoveMetadata;
-
-typedef int16_t i16;
-
-enum MoveTypes : MoveMetadata {
+enum MoveTypes : u8 {
 	NORMAL = 0 << 6,
 	EN_PASSANT = 1 << 6,
 	CASLING = 2 << 6,
@@ -67,6 +60,12 @@ typedef struct Move {
 	}
 	template <bool Black>
 	void Unmake(State prevState);
+
+	template <bool Black>
+	void MakeMoveMoveCaslingRookHashOnly(int to);
+	template <bool Black>
+	void MakeHashOnly();
+	void UnmakeHashOnly(State prevState, Hash prevHash);
 
 	inline char PromotionPiece(PieceType type) {
 		switch (type)
@@ -148,6 +147,25 @@ extern std::vector<Move> movesPlayed;
 
 extern int captures;
 
+__forceinline
+void prefetchCaslingHash() {
+	_mm_prefetch((const char *) caslingHashes, _MM_HINT_T0);
+}
+
+__forceinline
+void xorColorHash() {
+	boardState.hash ^= colorHash;
+}
+__forceinline
+void xorHash(PieceType type, Location loc) {
+	type -= (type & 0b1000)? piece_type::BLACK_PAWN : piece_type::WHITE_PAWN;
+	boardState.hash ^= pieceHashes[type][loc];
+}
+__forceinline
+void xorCaslingHash(CaslingState state) {
+	boardState.hash ^= caslingHashes[state];
+}
+
 inline void Move::MakeMoveChangeCaslingRights(BoardSet toAndFromMask, int from, int to) {
 	CaslingState &caslingState = boardState.state.casling;
 
@@ -159,6 +177,8 @@ inline void Move::MakeMoveChangeCaslingRights(BoardSet toAndFromMask, int from, 
 		return;
 	}
 
+	xorCaslingHash(caslingState);
+
 	if (from == 000 || to == 000) caslingState &= 0b1101;
 	if (from == 007 || to == 007) caslingState &= 0b1110;
 	if (from == 070 || to == 070) caslingState &= 0b0111;
@@ -166,6 +186,8 @@ inline void Move::MakeMoveChangeCaslingRights(BoardSet toAndFromMask, int from, 
 
 	if (from == 0004) caslingState &= 0b1100;
 	if (from == 0074) caslingState &= 0b0011;
+
+	xorCaslingHash(caslingState);
 }
 
 template <bool Black, bool Reversed>
@@ -196,6 +218,8 @@ void Move::MakeMoveMoveCaslingRook(int to) {
 		boardState.black.rook ^= xorMask;
 		boardState.squares[clear] = piece_type::NONE;
 		boardState.squares[place] = piece_type::BLACK_ROOK;
+		xorHash(piece_type::BLACK_ROOK, clear);
+		xorHash(piece_type::BLACK_ROOK, place);
 	}
 	else {
 		constexpr Location kingRookFrom = 007;
@@ -223,9 +247,10 @@ void Move::MakeMoveMoveCaslingRook(int to) {
 		boardState.white.rook ^= xorMask;
 		boardState.squares[clear] = piece_type::NONE;
 		boardState.squares[place] = piece_type::WHITE_ROOK;
+		xorHash(piece_type::WHITE_ROOK, clear);
+		xorHash(piece_type::WHITE_ROOK, place);
 	}
 }
-
 
 template <bool Black>
 __forceinline
@@ -477,24 +502,28 @@ void Move::Make() {
 	boardState.state.enPassantFile = NullLocation;
 	boardState.state.captured = piece_type::NONE;
 
-	switch (moveType) {
-	case NORMAL:
-		// capture
+	xorColorHash();
+
+	if (captured) {
 		boardState.pieces[captured] &= ~toMask;
 		enemyPieceSets.all &= ~toMask;
 		boardState.state.captured = captured;
-		// move
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= toAndFromMask;
-		boardState.squares[from] = piece_type::NONE;
-		boardState.squares[to] = movingPiece;
-
-		if (movingPiece == piece_type::COLORED_PAWN<Black>) {
-			if (to - from == (Black? -16 : 16)) {
-				boardState.state.enPassantFile = fileOf(to);
-			}
+		xorHash(captured, to);
+	}
+	friendPieceSets.all ^= toAndFromMask;
+	movingPieceSet ^= toAndFromMask;
+	xorHash(movingPiece, from);
+	xorHash(movingPiece, to);
+	boardState.squares[from] = piece_type::NONE;
+	boardState.squares[to] = movingPiece;
+	if (movingPiece == piece_type::COLORED_PAWN<Black>) {
+		if (to - from == (Black? -16 : 16)) {
+			boardState.state.enPassantFile = fileOf(to);
 		}
-		
+	}
+
+	switch (moveType) {
+	case NORMAL:
 		MakeMoveChangeCaslingRights(toAndFromMask, from, to);
 		break;
 	case EN_PASSANT:
@@ -502,35 +531,24 @@ void Move::Make() {
 		enemyPieceSets.pawn &= ~(Black? toMask << 8 : toMask >> 8);
 		enemyPieceSets.all &= ~(Black? toMask << 8 : toMask >> 8);
 		boardState.squares[Black? to + 8 : to - 8] = piece_type::NONE;
-		// move
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= toAndFromMask;
-		boardState.squares[from] = piece_type::NONE;
-		boardState.squares[to] = movingPiece;
+		xorHash(piece_type::COLORED_PAWN<!Black>, Black? to + 8 : to - 8);
 		break;
 	case CASLING:
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= toAndFromMask;
-		boardState.squares[from] = piece_type::NONE;
-		boardState.squares[to] = movingPiece;
 		MakeMoveMoveCaslingRook<Black, false>(to);
-
+		xorCaslingHash(boardState.state.casling);
 		boardState.state.casling &= Black? 0b0011 : 0b1100;
+		xorCaslingHash(boardState.state.casling);
 		break;
 	case PROMOTION:
-		// capture
-		boardState.pieces[captured] &= ~toMask;
-		enemyPieceSets.all &= ~toMask;
-		boardState.state.captured = captured;
 		// remove pawn
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= fromMask;
-		boardState.squares[from] = piece_type::NONE;
+		friendPieceSets.pawn ^= toMask;
+		xorHash(movingPiece, to);
 		// promotion
 		PieceType promotionPiece = PromotionPiece();
 		promotionPiece |= piece_type::COLOR<Black>;
 		boardState.pieces[promotionPiece] ^= toMask;
 		boardState.squares[to] = promotionPiece;
+		xorHash(promotionPiece, to);
 
 		MakeMoveChangeCaslingRights(toAndFromMask, from, to);
 		break;
@@ -562,52 +580,129 @@ void Move::Unmake(State prevState) {
 	MoveTypes moveType = MoveType();
 	PieceType captured = boardState.state.captured;
 
+	xorColorHash();
+
+	xorCaslingHash(boardState.state.casling);
 	boardState.state = prevState;
+	xorCaslingHash(boardState.state.casling);
+
+	if (captured) {
+		boardState.pieces[captured] |= toMask;
+		enemyPieceSets.all |= toMask;
+		xorHash(captured, to);
+	}
+	friendPieceSets.all ^= toAndFromMask;
+	movingPieceSet ^= toAndFromMask;
+	xorHash(movingPiece, to);
+	xorHash(movingPiece, from);
+	boardState.squares[from] = movingPiece;
+	boardState.squares[to] = captured;
 
 	switch (moveType) {
 	case NORMAL:
-		// capture
-		boardState.pieces[captured] |= toMask;
-		enemyPieceSets.all |= toMask * (captured > 0);
-		boardState.squares[to] = captured;
-		// move
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= toAndFromMask;
-		boardState.squares[from] = movingPiece;
 		break;
 	case EN_PASSANT:
 		// capture
 		enemyPieceSets.pawn |= Black? toMask << 8 : toMask >> 8;
 		enemyPieceSets.all |= Black? toMask << 8 : toMask >> 8;
 		boardState.squares[Black? to + 8 : to - 8] = piece_type::COLORED_PAWN<!Black>;
-		// move
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= toAndFromMask;
-		boardState.squares[to] = piece_type::NONE;
-		boardState.squares[from] = movingPiece;
+		xorHash(piece_type::COLORED_PAWN<!Black>, Black? to + 8 : to - 8);
 		break;
 	case CASLING:
-		friendPieceSets.all ^= toAndFromMask;
-		movingPieceSet ^= toAndFromMask;
-		boardState.squares[to] = piece_type::NONE;
-		boardState.squares[from] = movingPiece;
 		MakeMoveMoveCaslingRook<Black, true>(to);
 		break;
 	case PROMOTION:
-		// capture
-		boardState.pieces[captured] |= toMask;
-		enemyPieceSets.all |= toMask * (captured > 0);
-		boardState.squares[to] = captured;
-		// remove pawn
-		friendPieceSets.all ^= toAndFromMask;
-		friendPieceSets.pawn ^= fromMask;
-		boardState.squares[from] = piece_type::COLORED_PAWN<Black>;
 		// promotion
 		PieceType promotionPiece = PromotionPiece();
 		promotionPiece |= piece_type::COLOR<Black>;
-		movingPieceSet ^= toMask;
+		movingPieceSet ^= fromMask;
+		xorHash(movingPiece, from);
+		// add pawn
+		friendPieceSets.pawn ^= fromMask;
+		boardState.squares[from] = piece_type::COLORED_PAWN<Black>;
+		xorHash(piece_type::COLORED_PAWN<Black>, from);
 		break;
 	}
+}
+
+template <bool Black>
+void Move::MakeMoveMoveCaslingRookHashOnly(int to) {
+	if constexpr (Black) {
+		constexpr Location kingRookFrom = 077;
+		constexpr Location kingRookTo = 075;
+		constexpr Location queenRookFrom = 070;
+		constexpr Location queenRookTo = 073;
+
+		Location clear = (to == 076)? kingRookFrom : queenRookFrom;
+		Location place = (to == 076)? kingRookTo : queenRookTo;
+
+		xorHash(piece_type::BLACK_ROOK, clear);
+		xorHash(piece_type::BLACK_ROOK, place);
+	}
+	else {
+		constexpr Location kingRookFrom = 007;
+		constexpr Location kingRookTo = 005;
+		constexpr Location queenRookFrom = 000;
+		constexpr Location queenRookTo = 003;
+
+		Location clear = (to == 006)? kingRookFrom : queenRookFrom;
+		Location place = (to == 006)? kingRookTo : queenRookTo;
+
+		xorHash(piece_type::WHITE_ROOK, clear);
+		xorHash(piece_type::WHITE_ROOK, place);
+	}
+}
+
+template <bool Black>
+void Move::MakeHashOnly() {
+
+	int from = From();
+	int to = To();
+
+	PieceType movingPiece = boardState.squares[from];
+	PieceType captured = boardState.squares[to];
+
+	BoardSet toAndFromMask = (1ULL << to) | (1ULL << from);
+
+	MoveTypes moveType = MoveType();
+
+	xorColorHash();
+
+	xorHash(movingPiece, from);
+	xorHash(movingPiece, to);
+	if (captured) {
+		xorHash(captured, to);
+	}
+
+	switch (moveType) {
+	case NORMAL:
+		MakeMoveChangeCaslingRights(toAndFromMask, from, to);
+		break;
+	case EN_PASSANT:
+		// capture
+		xorHash(piece_type::COLORED_PAWN<!Black>, Black? to + 8 : to - 8);
+		break;
+	case CASLING:
+		MakeMoveMoveCaslingRookHashOnly<Black>(to);
+		xorCaslingHash(boardState.state.casling);
+		boardState.state.casling &= Black? 0b0011 : 0b1100;
+		xorCaslingHash(boardState.state.casling);
+		break;
+	case PROMOTION:
+		// remove pawn
+		xorHash(movingPiece, to);
+		// promotion
+		PieceType promotionPiece = PromotionPiece();
+		promotionPiece |= piece_type::COLOR<Black>;
+		xorHash(promotionPiece, to);
+
+		MakeMoveChangeCaslingRights(toAndFromMask, from, to);
+		break;
+	}
+}
+inline void Move::UnmakeHashOnly(State prevState, Hash prevHash) {
+	boardState.state = prevState;
+	boardState.hash = prevHash;
 }
 
 __forceinline

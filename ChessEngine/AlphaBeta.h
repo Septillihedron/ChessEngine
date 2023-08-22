@@ -1,9 +1,9 @@
 #pragma once
 #include <stdint.h>
+#include "Types.h"
 #include "Parameters.h"
 #include "MoveGen.h"
 
-#define PositionValue int16_t
 constexpr PositionValue MAX_VALUE = INT16_MAX-1;
 constexpr PositionValue MIN_VALUE = -MAX_VALUE;
 constexpr PositionValue DRAW_VALUE = 0;
@@ -53,6 +53,8 @@ Move Search() {
 	}
 	principleVariation.cmove -= 2;
 	memmove(principleVariation.moves, principleVariation.moves + 2, principleVariation.cmove);
+	std::cout << "Hash index collition: " << collitions0 << std::endl;
+	std::cout << "Hash collition: " << collitions1 << std::endl;
 	return bestMove;
 }
 
@@ -65,44 +67,137 @@ inline Move Search(bool isBlackTurn) {
 	}
 }
 
-inline u8 moveTempSize[21];
-inline Move moveTemp[21][256];
+inline PositionValue positionValues[256];
+inline u8 moveTempSize[22];
+inline Move moveTemp[22][256];
 
 template <bool Black>
 void OrderMoves(u8 movesSize, u8 depth) {
-	for (u8 i = 0; i<21; i++) {
+	for (u8 i = 0; i<22; i++) {
 		moveTempSize[i] = 0;
 	}
+
+	if (movesSize > _Prefetch_Size_) {
+		Hash prevHashes[_Prefetch_Size_];
+		int prevHashesSP = 0;
+
+		State prevState = boardState.state;
+		Hash prevHash = boardState.hash;
+		
+		prefetchCaslingHash();
+		for (int i = 0; i<_Prefetch_Size_; i++) {
+			moves[i].MakeHashOnly<Black>();
+
+			hashedPositions.prefetch(boardState.hash);
+			prevHashes[i] = boardState.hash;
+
+			moves[i].UnmakeHashOnly(prevState, prevHash);
+		}
+		for (int i = _Prefetch_Size_; i<movesSize; i++) {
+			moves[i].MakeHashOnly<Black>();
+			Hash hash = prevHashes[prevHashesSP];
+
+			hashedPositions.prefetch(boardState.hash);
+			prevHashes[prevHashesSP] = boardState.hash;
+			prevHashesSP = (prevHashesSP + 1) & (_Prefetch_Size_ - 1);
+
+			HashEntry entry = hashedPositions.get(hash);
+			if (entry.hash != hash) {
+				moveTemp[21][moveTempSize[21]] = moves[i-_Prefetch_Size_];
+				moveTempSize[21]++;
+			}
+			else {
+				moveTemp[0][moveTempSize[0]] = moves[i-_Prefetch_Size_];
+				positionValues[moveTempSize[0]] = entry.value;
+				moveTempSize[0]++;
+			}
+			moves[i].UnmakeHashOnly(prevState, prevHash);
+		}
+		for (int i = movesSize; i<movesSize+_Prefetch_Size_; i++) {
+			Hash hash = prevHashes[prevHashesSP];
+
+			prevHashesSP = (prevHashesSP + 1) & (_Prefetch_Size_ - 1);
+
+			HashEntry entry = hashedPositions.get(hash);
+			if (entry.hash != hash) {
+				moveTemp[21][moveTempSize[21]] = moves[i-_Prefetch_Size_];
+				moveTempSize[21]++;
+			}
+			else {
+				moveTemp[0][moveTempSize[0]] = moves[i-_Prefetch_Size_];
+				positionValues[moveTempSize[0]] = entry.value;
+				moveTempSize[0]++;
+			}
+		}
+	}
+	else {
+		State prevState = boardState.state;
+		Hash prevHash = boardState.hash;
+		for (int i = 0; i<movesSize; i++) {
+			moves[i].MakeHashOnly<Black>();
+
+			HashEntry entry = hashedPositions.get(boardState.hash);
+			if (entry.hash != boardState.hash) {
+				moveTemp[21][moveTempSize[21]] = moves[i];
+				moveTempSize[21]++;
+			}
+			else {
+				moveTemp[0][moveTempSize[0]] = moves[i];
+				positionValues[moveTempSize[0]] = entry.value;
+				moveTempSize[0]++;
+			}
+			moves[i].UnmakeHashOnly(prevState, prevHash);
+		}
+	}
+
+	{ // wikipedia pseudocode implementation
+		int i, j;
+		i = 1;
+		while (i < moveTempSize[0]) {
+			j = i;
+			while (j > 0 && positionValues[j-1] > positionValues[j]) {
+				std::swap(positionValues[j], positionValues[j-1]);
+				std::swap(moveTemp[0][j], moveTemp[0][j-1]);
+				j = j - 1;
+			}
+			i = i + 1;
+		}
+	}
+	memcpy(moves.moves + moves.start, moveTemp[0], moveTempSize[0] * sizeof(Move));
+	u8 start = moveTempSize[0];
+	moveTempSize[0] = 0;
+
 	Move principalMove = NullMove;
 	BoardSet &king = Black? boardState.black.king : boardState.white.king;
 	BoardSet kingRays = RaysMoveSet<true, true>(king, boardState.black.all | boardState.white.all);
-	for (u8 i = 0; i<movesSize; i++) {
-		if (moves[i] == principleVariation.moves[principleVariation.cmove - depth]) {
-			principalMove = moves[i];
+	for (u8 i = 0; i<moveTempSize[21]; i++) {
+		if (moveTemp[21][i] == principleVariation.moves[principleVariation.cmove - depth]) {
+			principalMove = moveTemp[21][i];
 			continue;
 		}
-		PositionValue value = simpleEvaluate<Black>(moves[i], kingRays);
+		PositionValue value = simpleEvaluate<Black>(moveTemp[21][i], kingRays);
 
-		moveTemp[value][moveTempSize[value]] = moves[i];
+		moveTemp[value][moveTempSize[value]] = moveTemp[21][i];
 		moveTempSize[value]++;
 	}
-	u8 start = (principalMove.fromAndType == (u8) -1)? 0 : 1;
 	if (principalMove.fromAndType != (u8) -1) {
-		moves[0] = principalMove;
+		moves[start] = principalMove;
 		start++;
 	}
 	for (int i = 20; i >= 0; i--) {
 		memcpy(moves.moves + moves.start + start, moveTemp[i], moveTempSize[i] * sizeof(Move));
 		start += moveTempSize[i];
 	}
+	if constexpr (_Strict_) {
+		if (start != movesSize) {
+			std::cout << "sorting went wrong" << std::endl;
+			throw "sorting went wrong";
+		}
+	}
 }
 
 template <bool Black>
 PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Variation *principleVariation) {
-	if (depth == 0) {
-		principleVariation->cmove = 0;
-		return Evaluate<Black>();
-	}
 	Move *last12Moves = movesPlayed.data() + movesPlayed.size() - 12;
 	if (last12Moves[11] == last12Moves[11-4]) {
 		if (last12Moves[11-4] == last12Moves[11-4-4]) {
@@ -110,11 +205,23 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 			return DRAW_VALUE;
 		}
 	}
+	if (depth == 0) {
+		principleVariation->cmove = 0;
+		PositionValue posVal = Evaluate<Black>();//AlphaBetaCaptures<!Black>(-beta, -alpha);
+		hashedPositions.set(boardState.hash, posVal, depth);
+		return posVal;
+	}
 	u8 movesSize = GenerateMoves<Black>();
 	if (movesSize == 0) {
 		principleVariation->cmove = 0;
-		if (boardState.checkData.checkCount > 0) return MIN_VALUE;
-		else return DRAW_VALUE;
+		if (boardState.checkData.checkCount > 0) {
+			hashedPositions.set(boardState.hash, MIN_VALUE, depth);
+			return MIN_VALUE;
+		}
+		else {
+			hashedPositions.set(boardState.hash, DRAW_VALUE, depth);
+			return DRAW_VALUE;
+		}
 	}
 	Variation &variation = variations[depth];
 	variation.cmove = 0;
@@ -126,7 +233,9 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 		PositionValue value = -AlphaBeta<!Black>(depth - 1, -beta, -alpha, &variation);
 		moves.pop();
 		moves[i].Unmake<Black>(prevState);
+		if (searchCanceled) return alpha;
 		if (value >= beta) {
+			hashedPositions.set(boardState.hash, value, depth);
 			return beta;
 		}
 		if (value > alpha) {
@@ -135,10 +244,11 @@ PositionValue AlphaBeta(u8 depth, PositionValue alpha, PositionValue beta, Varia
 			memcpy(principleVariation->moves + 1, variation.moves, variation.cmove * sizeof(Move));
 			principleVariation->cmove = variation.cmove + 1;
 			if (value == MAX_VALUE) {
+				hashedPositions.set(boardState.hash, value, depth);
 				return value;
 			}
 		}
-		if (searchCanceled) return alpha;
 	}
+	hashedPositions.set(boardState.hash, alpha, depth);
 	return alpha;
 }

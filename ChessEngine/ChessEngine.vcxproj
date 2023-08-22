@@ -241,6 +241,7 @@
     <ClInclude Include="MoveGen.h" />
     <ClInclude Include="Evaluator.h" />
     <ClInclude Include="Parameters.h" />
+    <ClInclude Include="Types.h" />
     <ClInclude Include="Zobrist.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

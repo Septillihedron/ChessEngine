@@ -56,5 +56,11 @@
     <ClInclude Include="Parameters.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Zobrist.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

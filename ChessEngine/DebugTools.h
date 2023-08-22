@@ -1,6 +1,6 @@
 #pragma once
 
-//#define DEBUG
+#define DEBUG
 
 #include <iostream>
 #include <sstream>
@@ -84,7 +84,6 @@ inline constexpr ConstexprArray<Move, Size> StringToMoves(std::string movesStr) 
     return moves;
 }
 
-#ifdef DEBUG
 inline Move movePlayed[10];
 inline Move moveUnplayed[10];
 
@@ -228,5 +227,3 @@ bool explorePerft(u8 depth) {
 
     return true;
 }
-
-#endif // DEBUG

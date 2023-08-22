@@ -41,6 +41,18 @@ BoardState CreateBoardState() {
 		014, 012, 013, 015, 016, 013, 012, 014,
 	};
 	memcpy(boardState.squares, squares, 64);
+
+	bool isBlackStart = false;
+
+	boardState.hash = 0;
+	boardState.hash ^= isBlackStart? colorHash : 0;
+	boardState.hash ^= caslingHashes[boardState.state.casling];
+	for (Location i = 0; i<64; i++) {
+		PieceType type = boardState.squares[i];
+		if (type == piece_type::NONE) continue;
+		type -= (type & 0b1000)? piece_type::BLACK_PAWN : piece_type::WHITE_PAWN;
+		boardState.hash ^= pieceHashes[type][i];
+	}
 	return boardState;
 }
 
@@ -109,6 +121,17 @@ bool CreateFromFEN(std::string fen, BoardState &boardState) {
 	}
 	UpdateAttackAndDefendSets<false>();
 	UpdateAttackAndDefendSets<true>();
+
+	boardState.hash = 0;
+	boardState.hash ^= isBlackStart? colorHash : 0;
+	boardState.hash ^= caslingHashes[boardState.state.casling];
+	for (Location i = 0; i<64; i++) {
+		PieceType type = boardState.squares[i];
+		if (type == piece_type::NONE) continue;
+		type -= (type & 0b1000)? piece_type::BLACK_PAWN : piece_type::WHITE_PAWN;
+		boardState.hash ^= pieceHashes[type][i];
+	}
+
 	return isBlackStart;
 }
 

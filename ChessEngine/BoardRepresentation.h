@@ -5,20 +5,11 @@
 #include <string>
 #include <iostream>
 #include <sstream>
+#include "Types.h"
 #include "Parameters.h"
 
-#define BoardSet uint64_t
-#define u8 uint8_t
-#define u16 uint16_t
-#define ChangeCaslingMask u8
-#define CaslingState u8
-#define Location u8
-#define PieceType u8
-#define File u8
-#define Rank u8
-#define FileAndCount u8
-
 #include "BitOps.h"
+#include "Zobrist.h"
 
 constexpr Location NullLocation = 0b10000000;
 constexpr CaslingState AllowAllCasling = 0b00001111;
@@ -240,6 +231,7 @@ typedef struct CheckData {
 typedef struct BoardState {
 
 	State state;
+	Hash hash;
 	
 	union {
 		struct {
@@ -312,6 +304,7 @@ typedef struct BoardState {
 
 	inline bool operator==(BoardState &other) {
 		if (state != other.state) return false;
+		if (hash != other.hash) return false;
 		if (white != other.white) return false;
 		if (black != other.black) return false;
 		for (int i = 0; i<64; i++) if (squares[i] != other.squares[i]) return false;
@@ -321,6 +314,7 @@ typedef struct BoardState {
 	inline std::string Difference(BoardState &other) {
 		std::stringstream difference;
 		if (state != other.state) difference << "state\n";
+		if (hash != other.hash) difference << "state\n";
 		for (Location i = 0; i<64; i++) {
 			if (squares[i] != other.squares[i]) {
 				difference << "square " << (char) (fileOf(i) + 'a') << (char) (rankOf(i) + '1') << "\n";
